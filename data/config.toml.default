@@ -1,0 +1,9 @@
+[server]
+bind = ""
+port = 26985
+token = ""
+
+[telegram]
+bot_token = ""
+#api_server = ""
+owner = 0

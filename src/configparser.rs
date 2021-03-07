@@ -20,6 +20,9 @@
 use serde_derive::{Deserialize, Serialize};
 use std::path::Path;
 use anyhow::Result;
+use std::net::Ipv4Addr;
+use std::str::FromStr;
+use std::convert::TryInto;
 
 #[derive(Deserialize, Serialize)]
 pub struct Config {
@@ -47,5 +50,10 @@ impl Config {
         let contents_str = contents.as_str();
 
         Ok(toml::from_str(contents_str)?)
+    }
+
+    pub fn get_bind_params(&self) -> Result<([u8; 4], u16)> {
+        let addr = Ipv4Addr::from_str(&self.server.bind)?;
+        Ok((addr.octets(), self.server.port))
     }
 }

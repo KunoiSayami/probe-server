@@ -19,7 +19,7 @@
  */
 use serde_derive::{Deserialize, Serialize};
 
-pub static CREATE_TABLES: str = *r#"CREATE TABLE "clients" (
+pub static CREATE_TABLES: &str = r#"CREATE TABLE "clients" (
 	"id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
 	"uuid"	TEXT NOT NULL,
 	"boot_time"	INTEGER NOT NULL,

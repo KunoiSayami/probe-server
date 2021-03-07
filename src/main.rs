@@ -24,6 +24,7 @@ mod structs;
 use warp::Filter;
 use sqlx::{Connection, SqliteConnection};
 use std::time::Duration;
+use crate::configparser::Config;
 
 async fn async_main() -> anyhow::Result<()> {
     let mut conn = SqliteConnection::connect("sqlite::memory:").await?;
@@ -34,10 +35,13 @@ async fn async_main() -> anyhow::Result<()> {
         .await?;
 
     if rows.len() == 0 {
-        sqlx::query(&structs::CREATE_TABLES)
+        sqlx::query(structs::CREATE_TABLES)
             .execute(&mut conn)
-            .await?
+            .await?;
     }
+
+    let config = Config::new("data/config.toml")?;
+
 
     let route = warp::filters::method::post()
         .and(warp::body::json())
@@ -51,13 +55,13 @@ async fn async_main() -> anyhow::Result<()> {
 
     let (tx, rx) = tokio::sync::oneshot::channel();
     let (addr, server) = warp::serve(route)
-        .bind_with_graceful_shutdown(([127, 0, 0, 1], 3030), async {rx.await.ok();
+        .bind_with_graceful_shutdown(config.get_bind_params()?, async {rx.await.ok();
         });
 
 
     tokio::task::spawn(server);
-
     tx.send(()).unwrap();
+    conn.close().await?;
     Ok(())
 }
 

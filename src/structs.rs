@@ -18,34 +18,36 @@
  ** along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 use serde_derive::{Deserialize, Serialize};
-use std::path::Path;
-use anyhow::Result;
+
+pub static CREATE_TABLES: str = *r#"CREATE TABLE "clients" (
+	"id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+	"uuid"	TEXT NOT NULL,
+	"boot_time"	INTEGER NOT NULL,
+	"last_seen"	INTEGER NOT NULL
+);
+
+CREATE TABLE "raw_data" (
+	"id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+	"from"	INTEGER NOT NULL,
+	"data"	TEXT NOT NULL,
+	"timestamp"	INTEGER NOT NULL
+);
+"#;
+
 
 #[derive(Deserialize, Serialize)]
-pub struct Config {
-    server: Server,
-    telegram: Telegram
+pub struct Response {
+    status: i64,
+    error_code: Option<i64>,
+    message: Option<String>,
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct Server {
-    bind: String,
-    port: u16,
-    token: String
-}
+impl Response {
+    pub fn new(status: i64, error_code: Option<i64>, message: Option<String>) -> Response {
+        Response {status, error_code, message}
+    }
 
-#[derive(Deserialize, Serialize)]
-pub struct Telegram {
-    bot_token: String,
-    api_server: Option<String>,
-    owner: i64
-}
-
-impl Config {
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<Config> {
-        let contents = std::fs::read_to_string(&path)?;
-        let contents_str = contents.as_str();
-
-        Ok(toml::from_str(contents_str)?)
+    pub fn new_ok() -> Response {
+        Response {status: 200, error_code: None, message: None}
     }
 }

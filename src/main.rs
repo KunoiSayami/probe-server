@@ -19,46 +19,54 @@
  */
 
 mod configparser;
+mod structs;
 
 use warp::Filter;
-use sqlx::Connection;
+use sqlx::{Connection, SqliteConnection};
+use std::time::Duration;
 
 async fn async_main() -> anyhow::Result<()> {
-    // GET /hello/warp => 200 OK with body "Hello, warp!"
-    let hello = warp::path!("hello" / String)
-        .map(|name| format!("Hello, {}!", name));
+    let mut conn = SqliteConnection::connect("sqlite::memory:").await?;
 
-    let post_filter = warp::filters::method::post()
-        .map(|| {});
+    let mut rows = sqlx::query(r#"SELECT name FROM sqlite_master WHERE type='table' AND name='?'"#)
+        .bind("clients")
+        .fetch_all(&mut conn)
+        .await?;
 
-    warp::serve(hello)
-        .run(([127, 0, 0, 1], 3030))
-        .await;
+    if rows.len() == 0 {
+        sqlx::query(&structs::CREATE_TABLES)
+            .execute(&mut conn)
+            .await?
+    }
+
+    let route = warp::filters::method::post()
+        .and(warp::body::json())
+        .and(warp::filters::header::optional("authorization"))
+        .map(|body: serde_json::Value, token: Option<String>| {
+            if let Some(token) = token {
+                println!("{}", token);
+            }
+            warp::reply::json(&structs::Response::new_ok())
+        });
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let (addr, server) = warp::serve(route)
+        .bind_with_graceful_shutdown(([127, 0, 0, 1], 3030), async {rx.await.ok();
+        });
+
+
+    tokio::task::spawn(server);
+
+    tx.send(()).unwrap();
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    use sqlx::Connection;
-    use sqlx::SqliteConnection;
-    let mut conn = SqliteConnection::connect("sqlite::memory:").await?;
-    sqlx::query(r#"CREATE TABLE "test" (
-	"test"	INTEGER
-);"#)
-        .execute(&mut conn)
-        .await?;
 
-    sqlx::query(r#"INSERT INTO "test"("test") VALUES (?)"#)
-        .bind(1)
-        .execute(&mut conn)
-        .await?;
+fn main() -> anyhow::Result<()>{
 
-    let r : (i64,) = sqlx::query_as(r#"select * from "test""#)
-        .fetch_one(&mut conn)
-        .await?;
-
-    conn.close().await?;
-
-    assert_eq!(r.0, 1);
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(async_main())?;
     Ok(())
 }

@@ -21,16 +21,28 @@
 mod configparser;
 mod structs;
 
-use sqlx::{Connection, SqliteConnection};
 use crate::configparser::Config;
 use crate::structs::Response;
-use tokio::sync::Mutex;
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, HttpMessage};
+use log::info;
+use sqlx::{Connection, SqliteConnection};
 use std::sync::Arc;
-use actix_web::{web, App, HttpServer, HttpResponse};
+use tokio::sync::Mutex;
+use futures::StreamExt;
 
-async fn route_post(req_body: String, data: web::Data<SqliteConnection>) -> HttpResponse {
-    HttpResponse::Ok()
-        .json(Response::new_ok())
+const CHUNK_MAX_SIZE: usize = 262_144;
+
+async fn route_post(mut req: HttpRequest, mut payload: web::Payload, data: web::Data<Arc<Mutex<SqliteConnection>>>) -> Result<impl Responder, actix_web::Error> {
+    let mut body = web::BytesMut::new();
+    while let Some(chunk) = payload.next().await {
+        let chunk = chunk?;
+        if (body.len() + chunk.len()) > CHUNK_MAX_SIZE {
+            return Err(actix_web::error::ErrorBadRequest("overflow"))
+        }
+        body.extend_from_slice(&chunk);
+    }
+    info!("{}", String::from_utf8_lossy(&body));
+    Ok(HttpResponse::Ok().json(Response::new_ok()))
 }
 
 async fn async_main() -> anyhow::Result<()> {
@@ -53,31 +65,31 @@ async fn async_main() -> anyhow::Result<()> {
     let authorization_guard = crate::configparser::AuthorizationGuard::from(&config);
     let bind_addr = config.get_bind_params();
 
-    println!("{}", &bind_addr);
+    info!("Bind address: {}", &bind_addr);
 
     HttpServer::new(move || {
         App::new()
             .service(
                 web::scope("/")
                     .guard(authorization_guard.to_owned())
-                    .route("", web::to(|| HttpResponse::Forbidden()))
+                    .route("", web::to(|| HttpResponse::Forbidden())),
             )
-            .app_data(arc_.clone())
+            .data(arc_.clone())
             .route("/", web::post().to(route_post))
     })
-        .bind(&bind_addr)?
-        .run()
-        .await?;
+    .bind(&bind_addr)?
+    .run()
+    .await?;
 
     Ok(())
 }
 
+fn main() -> anyhow::Result<()> {
+    env_logger::init();
 
-fn main() -> anyhow::Result<()>{
+    let system = actix::System::new();
 
-    let mut system = actix::System::new();
-
-    let addr = system.block_on(async_main())?;
+    system.block_on(async_main())?;
 
     system.run()?;
 

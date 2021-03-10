@@ -17,30 +17,30 @@
  ** You should have received a copy of the GNU Affero General Public License
  ** along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+use actix_web::dev::RequestHead;
+use actix_web::guard::Guard;
+use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 use std::path::Path;
-use anyhow::Result;
-use actix_web::guard::Guard;
-use actix_web::dev::RequestHead;
 
 #[derive(Deserialize, Serialize)]
 pub struct Config {
     server: Server,
-    telegram: Telegram
+    telegram: Telegram,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct Server {
     bind: String,
     port: u16,
-    token: String
+    token: String,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct Telegram {
     bot_token: String,
     api_server: Option<String>,
-    owner: i64
+    owner: i64,
 }
 
 impl Config {
@@ -62,20 +62,22 @@ impl Config {
 
 #[derive(Clone)]
 pub struct AuthorizationGuard {
-    token: String
+    token: String,
 }
 
 impl From<&Config> for AuthorizationGuard {
     fn from(cfg: &Config) -> Self {
-        AuthorizationGuard { token: format!("Bearer {}", &cfg.server.token)  }
+        AuthorizationGuard {
+            token: format!("Bearer {}", &cfg.server.token).trim().to_string(),
+        }
     }
 }
 
 impl Guard for AuthorizationGuard {
     fn check(&self, request: &RequestHead) -> bool {
         if let Some(val) = request.headers.get("authorization") {
-            return val == &self.token;
+            return val != &self.token;
         }
-        false
+        true
     }
 }

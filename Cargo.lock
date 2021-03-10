@@ -1473,6 +1473,7 @@ dependencies = [
  "actix-web",
  "anyhow",
  "env_logger",
+ "futures",
  "log",
  "serde",
  "serde_derive",

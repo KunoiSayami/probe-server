@@ -34,7 +34,6 @@ CREATE TABLE "raw_data" (
 );
 "#;
 
-
 #[derive(Deserialize, Serialize)]
 pub struct Response {
     status: i64,
@@ -44,10 +43,18 @@ pub struct Response {
 
 impl Response {
     pub fn new(status: i64, error_code: Option<i64>, message: Option<String>) -> Response {
-        Response {status, error_code, message}
+        Response {
+            status,
+            error_code,
+            message,
+        }
     }
 
     pub fn new_ok() -> Response {
-        Response {status: 200, error_code: None, message: None}
+        Response {
+            status: 200,
+            error_code: None,
+            message: None,
+        }
     }
 }

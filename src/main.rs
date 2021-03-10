@@ -25,23 +25,61 @@ use crate::configparser::Config;
 use crate::structs::Response;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, HttpMessage};
 use log::info;
-use sqlx::{Connection, SqliteConnection};
+use sqlx::{Connection, SqliteConnection, Row};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use futures::StreamExt;
+use std::convert::TryInto;
+use std::ops::Index;
 
-const CHUNK_MAX_SIZE: usize = 262_144;
 
-async fn route_post(mut req: HttpRequest, mut payload: web::Payload, data: web::Data<Arc<Mutex<SqliteConnection>>>) -> Result<impl Responder, actix_web::Error> {
-    let mut body = web::BytesMut::new();
-    while let Some(chunk) = payload.next().await {
-        let chunk = chunk?;
-        if (body.len() + chunk.len()) > CHUNK_MAX_SIZE {
-            return Err(actix_web::error::ErrorBadRequest("overflow"))
+fn get_current_timestamp() -> u128 {
+    let start = std::time::SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("Time went backwards");
+    since_the_epoch.as_millis()
+}
+
+async fn query_client_id_from_uuid(mut conn: &SqliteConnection, uuid: &String) -> anyhow::Result<Option<i32>> {
+    let r = sqlx::query(r#"SELECT FROM "clients" WHERE "uuid" = ?"#)
+        .bind(uuid)
+        .fetch_all(&mut conn)
+        .await?;
+    Ok(if r.is_empty() {
+        None
+    } else {
+        Some(r.index(0).column(0))
+    })
+}
+
+async fn route_post(_req: HttpRequest, payload: web::Json<structs::Request>, data: web::Data<Arc<Mutex<SqliteConnection>>>) -> actix_web::Result<impl Responder> {
+    {
+        let conn = data.lock().await;
+        let id = query_client_id_from_uuid(&mut (*conn), payload.get_uuid()).await?;
+        let id = if id.is_none() {
+            if payload.get_action().eq("register") {
+                sqlx::query(r#"INSERT INTO "clients" ("uuid", "boot_time", "last_seen") VALUES (?, ?, ?)"#)
+                    .bind(payload.get_uuid())
+                    .bind(0)
+                    .bind(get_current_timestamp().try_into()?)
+                    .execute(&mut (*conn))
+                    .await?;
+            } else {
+                return Err(actix_web::error::ErrorBadRequest("Not registered client"))
+            }
+            query_client_id_from_uuid(&mut (*conn), payload.get_uuid()).await??
+        } else {
+            id?
+        };
+        if payload.get_body().is_some() {
+            sqlx::query(r#"INSERT INTO "raw_data" ("from", "data", "timestamp") VALUES (?, ?, ?)"#)
+                .bind(id)
+                .bind(payload.get_body().clone().unwrap())
+                .bind(get_current_timestamp().try_into()?)
+                .await?;
         }
-        body.extend_from_slice(&chunk);
     }
-    info!("{}", String::from_utf8_lossy(&body));
     Ok(HttpResponse::Ok().json(Response::new_ok()))
 }
 

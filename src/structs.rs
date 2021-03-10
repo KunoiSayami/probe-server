@@ -19,9 +19,9 @@
  */
 use serde_derive::{Deserialize, Serialize};
 
-pub static CREATE_TABLES: &str = r#"CREATE TABLE "clients" (
+pub const CREATE_TABLES: &str = r#"CREATE TABLE "clients" (
 	"id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-	"uuid"	TEXT NOT NULL,
+	"uuid"	TEXT NOT NULL UNIQUE,
 	"boot_time"	INTEGER NOT NULL,
 	"last_seen"	INTEGER NOT NULL
 );
@@ -56,5 +56,26 @@ impl Response {
             error_code: None,
             message: None,
         }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct Request {
+    action: String,
+    uuid: String,
+    body: Option<String>,
+}
+
+impl Request {
+    pub fn get_action(&self) -> &String {
+        &self.action
+    }
+
+    pub fn get_uuid(&self) -> &String {
+        &self.uuid
+    }
+
+    pub fn get_body(&self) -> &Option<String> {
+        &self.body
     }
 }

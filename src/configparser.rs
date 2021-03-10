@@ -20,9 +20,8 @@
 use serde_derive::{Deserialize, Serialize};
 use std::path::Path;
 use anyhow::Result;
-use std::net::Ipv4Addr;
-use std::str::FromStr;
-use std::convert::TryInto;
+use actix_web::guard::Guard;
+use actix_web::dev::RequestHead;
 
 #[derive(Deserialize, Serialize)]
 pub struct Config {
@@ -52,8 +51,31 @@ impl Config {
         Ok(toml::from_str(contents_str)?)
     }
 
-    pub fn get_bind_params(&self) -> Result<([u8; 4], u16)> {
-        let addr = Ipv4Addr::from_str(&self.server.bind)?;
-        Ok((addr.octets(), self.server.port))
+    pub fn get_bind_params(&self) -> String {
+        format!("{}:{}", self.server.bind, self.server.port)
+    }
+
+    pub fn token_equal(&self, token: &str) -> bool {
+        token.eq(&self.server.token)
+    }
+}
+
+#[derive(Clone)]
+pub struct AuthorizationGuard {
+    token: String
+}
+
+impl From<&Config> for AuthorizationGuard {
+    fn from(cfg: &Config) -> Self {
+        AuthorizationGuard { token: format!("Bearer {}", &cfg.server.token)  }
+    }
+}
+
+impl Guard for AuthorizationGuard {
+    fn check(&self, request: &RequestHead) -> bool {
+        if let Some(val) = request.headers.get("authorization") {
+            return val == &self.token;
+        }
+        false
     }
 }

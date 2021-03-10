@@ -21,56 +21,65 @@
 mod configparser;
 mod structs;
 
-use warp::Filter;
 use sqlx::{Connection, SqliteConnection};
-use std::time::Duration;
 use crate::configparser::Config;
+use crate::structs::Response;
+use tokio::sync::Mutex;
+use std::sync::Arc;
+use actix_web::{web, App, HttpServer, HttpResponse};
+
+async fn route_post(req_body: String, data: web::Data<SqliteConnection>) -> HttpResponse {
+    HttpResponse::Ok()
+        .json(Response::new_ok())
+}
 
 async fn async_main() -> anyhow::Result<()> {
     let mut conn = SqliteConnection::connect("sqlite::memory:").await?;
 
-    let mut rows = sqlx::query(r#"SELECT name FROM sqlite_master WHERE type='table' AND name='?'"#)
+    let rows = sqlx::query(r#"SELECT name FROM sqlite_master WHERE type='table' AND name='?'"#)
         .bind("clients")
         .fetch_all(&mut conn)
         .await?;
 
     if rows.len() == 0 {
         sqlx::query(structs::CREATE_TABLES)
-            .execute(&mut conn)
-            .await?;
+            .execute_many(&mut conn)
+            .await;
     }
 
     let config = Config::new("data/config.toml")?;
 
+    let arc_ = Arc::new(Mutex::new(conn));
+    let authorization_guard = crate::configparser::AuthorizationGuard::from(&config);
+    let bind_addr = config.get_bind_params();
 
-    let route = warp::filters::method::post()
-        .and(warp::body::json())
-        .and(warp::filters::header::optional("authorization"))
-        .map(|body: serde_json::Value, token: Option<String>| {
-            if let Some(token) = token {
-                println!("{}", token);
-            }
-            warp::reply::json(&structs::Response::new_ok())
-        });
+    println!("{}", &bind_addr);
 
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    let (addr, server) = warp::serve(route)
-        .bind_with_graceful_shutdown(config.get_bind_params()?, async {rx.await.ok();
-        });
+    HttpServer::new(move || {
+        App::new()
+            .service(
+                web::scope("/")
+                    .guard(authorization_guard.to_owned())
+                    .route("", web::to(|| HttpResponse::Forbidden()))
+            )
+            .app_data(arc_.clone())
+            .route("/", web::post().to(route_post))
+    })
+        .bind(&bind_addr)?
+        .run()
+        .await?;
 
-
-    tokio::task::spawn(server);
-    tx.send(()).unwrap();
-    conn.close().await?;
     Ok(())
 }
 
 
 fn main() -> anyhow::Result<()>{
 
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?
-        .block_on(async_main())?;
+    let mut system = actix::System::new();
+
+    let addr = system.block_on(async_main())?;
+
+    system.run()?;
+
     Ok(())
 }

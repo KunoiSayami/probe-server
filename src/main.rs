@@ -23,15 +23,11 @@ mod structs;
 
 use crate::configparser::Config;
 use crate::structs::Response;
-use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, HttpMessage};
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use log::info;
-use sqlx::{Connection, SqliteConnection, Row};
+use sqlx::{Connection, Row, SqliteConnection};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use futures::StreamExt;
-use std::convert::TryInto;
-use std::ops::Index;
-
 
 fn get_current_timestamp() -> u128 {
     let start = std::time::SystemTime::now();
@@ -41,43 +37,46 @@ fn get_current_timestamp() -> u128 {
     since_the_epoch.as_millis()
 }
 
-async fn query_client_id_from_uuid(mut conn: &SqliteConnection, uuid: &String) -> anyhow::Result<Option<i32>> {
-    let r = sqlx::query(r#"SELECT FROM "clients" WHERE "uuid" = ?"#)
-        .bind(uuid)
-        .fetch_all(&mut conn)
-        .await?;
-    Ok(if r.is_empty() {
-        None
-    } else {
-        Some(r.index(0).column(0))
-    })
-}
-
-async fn route_post(_req: HttpRequest, payload: web::Json<structs::Request>, data: web::Data<Arc<Mutex<SqliteConnection>>>) -> actix_web::Result<impl Responder> {
+async fn route_post(
+    _req: HttpRequest,
+    payload: web::Json<structs::Request>,
+    data: web::Data<Arc<Mutex<SqliteConnection>>>,
+) -> actix_web::Result<impl Responder> {
     {
-        let conn = data.lock().await;
-        let id = query_client_id_from_uuid(&mut (*conn), payload.get_uuid()).await?;
-        let id = if id.is_none() {
-            if payload.get_action().eq("register") {
-                sqlx::query(r#"INSERT INTO "clients" ("uuid", "boot_time", "last_seen") VALUES (?, ?, ?)"#)
-                    .bind(payload.get_uuid())
-                    .bind(0)
-                    .bind(get_current_timestamp().try_into()?)
-                    .execute(&mut (*conn))
-                    .await?;
-            } else {
-                return Err(actix_web::error::ErrorBadRequest("Not registered client"))
-            }
-            query_client_id_from_uuid(&mut (*conn), payload.get_uuid()).await??
+        let mut conn = data.lock().await;
+        let r = sqlx::query(r#"SELECT "id" FROM "clients" WHERE "uuid" = ?"#)
+            .bind(payload.get_uuid())
+            .fetch_one(&mut (*conn))
+            .await;
+        let id = if r.is_ok() {
+            r.unwrap().get(0)
+        } else if payload.get_action().eq("register") {
+            sqlx::query(
+                r#"INSERT INTO "clients" ("uuid", "boot_time", "last_seen") VALUES (?, ?, ?)"#,
+            )
+            .bind(payload.get_uuid())
+            .bind(0u32)
+            .bind(get_current_timestamp() as u32)
+            .execute(&mut (*conn))
+            .await
+            .unwrap();
+            let r: (i32,) = sqlx::query_as(r#"SELECT "id" FROM "clients" WHERE "uuid" = ?"#)
+                .bind(payload.get_uuid())
+                .fetch_one(&mut (*conn))
+                .await
+                .unwrap();
+            r.0
         } else {
-            id?
+            return Err(actix_web::error::ErrorBadRequest("Not registered client"));
         };
         if payload.get_body().is_some() {
             sqlx::query(r#"INSERT INTO "raw_data" ("from", "data", "timestamp") VALUES (?, ?, ?)"#)
                 .bind(id)
                 .bind(payload.get_body().clone().unwrap())
-                .bind(get_current_timestamp().try_into()?)
-                .await?;
+                .bind(get_current_timestamp() as u32)
+                .execute(&mut (*conn))
+                .await
+                .unwrap();
         }
     }
     Ok(HttpResponse::Ok().json(Response::new_ok()))
@@ -91,10 +90,10 @@ async fn async_main() -> anyhow::Result<()> {
         .fetch_all(&mut conn)
         .await?;
 
-    if rows.len() == 0 {
+    if rows.is_empty() {
         sqlx::query(structs::CREATE_TABLES)
-            .execute_many(&mut conn)
-            .await;
+            .execute(&mut conn)
+            .await?;
     }
 
     let config = Config::new("data/config.toml")?;
@@ -110,7 +109,7 @@ async fn async_main() -> anyhow::Result<()> {
             .service(
                 web::scope("/")
                     .guard(authorization_guard.to_owned())
-                    .route("", web::to(|| HttpResponse::Forbidden())),
+                    .route("", web::to(HttpResponse::Forbidden)),
             )
             .data(arc_.clone())
             .route("/", web::post().to(route_post))

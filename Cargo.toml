@@ -18,4 +18,3 @@ teloxide = { git = "https://github.com/teloxide/teloxide" }
 actix-web = { git = "https://github.com/actix/actix-web.git" }
 actix-rt = { git = "https://github.com/actix/actix-net" }
 actix = { git = "https://github.com/actix/actix" }
-futures = "0.3.13"

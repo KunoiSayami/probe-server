@@ -55,9 +55,21 @@ impl Config {
         format!("{}:{}", self.server.bind, self.server.port)
     }
 
-    pub fn token_equal(&self, token: &str) -> bool {
-        token.eq(&self.server.token)
+    pub fn get_bot_token(&self) -> &String {
+        &self.telegram.bot_token
     }
+
+    pub fn get_api_server(&self) -> &Option<String> {
+        &self.telegram.api_server
+    }
+
+    pub fn get_owner(&self) -> i64 {
+        self.telegram.owner
+    }
+
+    /*pub fn token_equal(&self, token: &str) -> bool {
+        token.eq(&self.server.token)
+    }*/
 }
 
 #[derive(Clone)]

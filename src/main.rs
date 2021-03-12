@@ -24,7 +24,7 @@ mod structs;
 use crate::configparser::Config;
 use crate::structs::Response;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
-use log::{info, debug};
+use log::{debug, info};
 use sqlx::{Connection, Row, SqliteConnection};
 use std::future::Future;
 use std::sync::Arc;
@@ -53,15 +53,24 @@ enum Command {
 }
 
 impl Command {
-    fn new<T>(s: T) -> Command where T: Into<String> {
+    fn new<T>(s: T) -> Command
+    where
+        T: Into<String>,
+    {
         Command::Data(s.into())
     }
 }
 
-async fn process_send_message(mut rx: mpsc::Receiver<Command>) -> anyhow::Result<()> {
+async fn process_send_message(
+    bot: Bot,
+    owner: i64,
+    mut rx: mpsc::Receiver<Command>,
+) -> anyhow::Result<()> {
     while let Some(cmd) = rx.recv().await {
         match cmd {
-            Command::Data(_) => {}
+            Command::Data(text) => {
+                bot.send_message(owner, text).send().compat().await?;
+            }
             Command::Terminate => break,
         }
     }
@@ -121,11 +130,7 @@ async fn route_post(
                 .unwrap();
             }
         }
-        extra_data
-            .tx
-            .send(Command::new("test"))
-            .await
-            .ok();
+        extra_data.tx.send(Command::new("test")).await.ok();
     }
     Ok(HttpResponse::Ok().json(Response::new_ok()))
 }
@@ -174,7 +179,7 @@ async fn async_main() -> anyhow::Result<()> {
         .run(),
     );
 
-    let msg_sender = tokio::spawn(process_send_message(rx));
+    let msg_sender = tokio::spawn(process_send_message(bot.clone(), config.get_owner(), rx));
     server.await??;
     tx.send(Command::Terminate).await?;
     msg_sender.await??;

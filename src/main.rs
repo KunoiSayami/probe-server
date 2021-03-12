@@ -24,13 +24,14 @@ mod structs;
 use crate::configparser::Config;
 use crate::structs::Response;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
-use log::info;
+use log::{info, debug};
 use sqlx::{Connection, Row, SqliteConnection};
+use std::future::Future;
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use tokio_compat_02::FutureExt;
+use teloxide::requests::{Request, ResponseResult};
 use teloxide::Bot;
-use teloxide::requests::Request;
+use tokio::sync::{mpsc, Mutex};
+use tokio_compat_02::FutureExt as _;
 
 fn get_current_timestamp() -> u128 {
     let start = std::time::SystemTime::now();
@@ -41,9 +42,30 @@ fn get_current_timestamp() -> u128 {
 }
 
 struct ExtraData {
-    bot: Bot,
     conn: SqliteConnection,
-    owner: i64,
+    tx: mpsc::Sender<Command>,
+}
+
+#[derive(Debug)]
+enum Command {
+    Data(String),
+    Terminate,
+}
+
+impl Command {
+    fn new<T>(s: T) -> Command where T: Into<String> {
+        Command::Data(s.into())
+    }
+}
+
+async fn process_send_message(mut rx: mpsc::Receiver<Command>) -> anyhow::Result<()> {
+    while let Some(cmd) = rx.recv().await {
+        match cmd {
+            Command::Data(_) => {}
+            Command::Terminate => break,
+        }
+    }
+    Ok(())
 }
 
 async fn route_post(
@@ -99,11 +121,11 @@ async fn route_post(
                 .unwrap();
             }
         }
-            extra_data.bot.send_message(extra_data.owner, "test")
-                .send()
-                .compat()
-                .await.unwrap();
-        //.await.unwrap();
+        extra_data
+            .tx
+            .send(Command::new("test"))
+            .await
+            .ok();
     }
     Ok(HttpResponse::Ok().json(Response::new_ok()))
 }
@@ -126,32 +148,36 @@ async fn async_main() -> anyhow::Result<()> {
 
     let bot = Bot::builder().token(config.get_bot_token()).build();
 
+    let (tx, mut rx) = mpsc::channel(1024);
+
     let extra_data = Arc::new(Mutex::new(ExtraData {
-        bot,
         conn,
-        owner: config.get_owner(),
+        tx: tx.clone(),
     }));
     let authorization_guard = crate::configparser::AuthorizationGuard::from(&config);
     let bind_addr = config.get_bind_params();
 
     info!("Bind address: {}", &bind_addr);
 
-
-    let server = tokio::spawn(HttpServer::new(move || {
-        App::new()
-            .service(
-                web::scope("/")
-                    .guard(authorization_guard.to_owned())
-                    .route("", web::to(HttpResponse::Forbidden)),
-            )
-            .data(extra_data.clone())
-            .route("/", web::post().to(route_post))
+    let server = tokio::spawn(
+        HttpServer::new(move || {
+            App::new()
+                .service(
+                    web::scope("/")
+                        .guard(authorization_guard.to_owned())
+                        .route("", web::to(HttpResponse::Forbidden)),
+                )
+                .data(extra_data.clone())
+                .route("/", web::post().to(route_post))
         })
         .bind(&bind_addr)?
-        .run()
+        .run(),
     );
 
+    let msg_sender = tokio::spawn(process_send_message(rx));
     server.await??;
+    tx.send(Command::Terminate).await?;
+    msg_sender.await??;
 
     Ok(())
 }

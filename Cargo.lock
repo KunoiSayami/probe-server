@@ -2020,7 +2020,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 [[package]]
 name = "teloxide"
 version = "0.3.4"
-source = "git+https://github.com/teloxide/teloxide#fe6429c2790502ae09b04d2659f33e4495f6d314"
+source = "git+https://github.com/imayasiounk/teloxide#f539dcf67043979ecd2a543aec8adfe0ffc941b7"
 dependencies = [
  "async-trait",
  "bytes 0.5.6",

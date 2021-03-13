@@ -32,6 +32,7 @@ use teloxide::requests::{Request, ResponseResult};
 use teloxide::Bot;
 use tokio::sync::{mpsc, Mutex};
 use tokio_compat_02::FutureExt as _;
+use teloxide::types::ParseMode;
 
 fn get_current_timestamp() -> u128 {
     let start = std::time::SystemTime::now();
@@ -109,28 +110,36 @@ async fn route_post(
         } else {
             return Err(actix_web::error::ErrorBadRequest("Not registered client"));
         };
-        if payload.get_action().eq("heartbeat") {
-            // Update last seen
-            sqlx::query(r#"UPDATE "clients" SET "lastseen" = ? WHERE "id" = ? "#)
-                .bind(get_current_timestamp() as u32)
-                .bind(id)
-                .execute(&mut extra_data.conn)
-                .await
-                .unwrap();
+        match payload.get_action().as_str() {
+            "register" => {
+                extra_data.tx.send(Command::new(format!("{} (<code>{}</code>) comes online", id, payload.get_uuid()))).await.ok();
+            },
+            "heartbeat" => {
+                // Update last seen
+                sqlx::query(r#"UPDATE "clients" SET "lastseen" = ? WHERE "id" = ? "#)
+                    .bind(get_current_timestamp() as u32)
+                    .bind(id)
+                    .execute(&mut extra_data.conn)
+                    .await
+                    .unwrap();
 
-            if payload.get_body().is_some() {
-                sqlx::query(
-                    r#"INSERT INTO "raw_data" ("from", "data", "timestamp") VALUES (?, ?, ?)"#,
-                )
-                .bind(id)
-                .bind(payload.get_body().clone().unwrap())
-                .bind(get_current_timestamp() as u32)
-                .execute(&mut extra_data.conn)
-                .await
-                .unwrap();
+                if payload.get_body().is_some() {
+                    sqlx::query(
+                        r#"INSERT INTO "raw_data" ("from", "data", "timestamp") VALUES (?, ?, ?)"#,
+                    )
+                        .bind(id)
+                        .bind(payload.get_body().clone().unwrap())
+                        .bind(get_current_timestamp() as u32)
+                        .execute(&mut extra_data.conn)
+                        .await
+                        .unwrap();
+                }
             }
+            _ => {
+                return Err(actix_web::error::ErrorBadRequest("Method not allowed"))
+            }
+
         }
-        extra_data.tx.send(Command::new("test")).await.ok();
     }
     Ok(HttpResponse::Ok().json(Response::new_ok()))
 }
@@ -151,7 +160,10 @@ async fn async_main() -> anyhow::Result<()> {
 
     let config = Config::new("data/config.toml")?;
 
-    let bot = Bot::builder().token(config.get_bot_token()).build();
+    let bot = Bot::builder()
+        .token(config.get_bot_token())
+        .parse_mode(ParseMode::HTML)
+        .build();
 
     let (tx, mut rx) = mpsc::channel(1024);
 

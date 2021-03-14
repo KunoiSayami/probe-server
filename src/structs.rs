@@ -35,8 +35,8 @@ CREATE TABLE "raw_data" (
 "#;
 
 pub const CREATE_TABLES_WATCHDOG: &str = r#"CREATE TABLE "list" (
-    "id"    INTEGER NOT NULL UNIQUE,
-)
+    "id"    INTEGER NOT NULL PRIMARY KEY
+);
 "#;
 
 #[derive(Deserialize, Serialize)]
@@ -85,9 +85,47 @@ impl Request {
     }
 }
 
-
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct AdditionalInfo {
     hostname: Option<String>,
-    boot_time: Option<String>,
+    boot_time: Option<u64>,
+}
+
+impl AdditionalInfo {
+    pub fn get_host_name(&self) -> String {
+        match &self.hostname {
+            Some(s) => s.clone(),
+            None => Default::default(),
+        }
+    }
+
+    pub fn get_boot_time(&self) -> &Option<u64> {
+        &self.boot_time
+    }
+}
+
+#[derive(sqlx::FromRow)]
+pub struct ClientRow {
+    id: i32,
+    uuid: String,
+    boot_time: u32,
+    last_seen: u32,
+}
+
+impl ClientRow {
+    pub fn get_id(&self) -> i32 {
+        self.id
+    }
+
+    pub fn get_uuid(&self) -> &String {
+        &self.uuid
+    }
+
+    pub fn get_boot_time(&self) -> u32 {
+        self.boot_time
+    }
+
+    pub fn get_last_seen(&self) -> u32 {
+        self.last_seen
+    }
 }

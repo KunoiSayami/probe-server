@@ -27,35 +27,32 @@ use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use log::{debug, info};
 use sqlx::{Connection, Row, SqliteConnection};
 use std::sync::Arc;
+use std::time::Duration;
 use teloxide::requests::Request;
+use teloxide::types::ParseMode;
 use teloxide::Bot;
 use tokio::sync::{mpsc, Mutex};
 use tokio_compat_02::FutureExt as _;
-use teloxide::types::ParseMode;
-use std::time::Duration;
+use tokio_stream::StreamExt;
 
-fn get_current_timestamp() -> u128 {
+fn get_current_timestamp() -> u64 {
     let start = std::time::SystemTime::now();
     let since_the_epoch = start
         .duration_since(std::time::UNIX_EPOCH)
         .expect("Time went backwards");
-    since_the_epoch.as_millis()
+    since_the_epoch.as_secs()
 }
 
 struct ExtraData {
     conn: SqliteConnection,
-    tx: mpsc::Sender<Command>,
+    bot_tx: mpsc::Sender<Command>,
+    watchdog_tx: mpsc::Sender<Command>,
 }
 
 #[derive(Debug)]
 enum Command {
-    Data(String),
-    Terminate,
-}
-
-#[derive(Debug)]
-enum DeviceCommand {
-    Data(String),
+    StringData(String),
+    IntegerData(i32),
     Terminate,
 }
 
@@ -64,7 +61,7 @@ impl Command {
     where
         T: Into<String>,
     {
-        Command::Data(s.into())
+        Command::StringData(s.into())
     }
 }
 
@@ -75,10 +72,11 @@ async fn process_send_message(
 ) -> anyhow::Result<()> {
     while let Some(cmd) = rx.recv().await {
         match cmd {
-            Command::Data(text) => {
+            Command::StringData(text) => {
                 bot.send_message(owner, text).send().compat().await?;
             }
             Command::Terminate => break,
+            _ => {},
         }
     }
     Ok(())
@@ -89,6 +87,16 @@ async fn route_post(
     payload: web::Json<structs::Request>,
     data: web::Data<Arc<Mutex<ExtraData>>>,
 ) -> actix_web::Result<impl Responder> {
+    let hostname: String = match payload.get_body() {
+        None => Default::default(),
+        Some(s) => {
+            if let Ok(info) = serde_json::from_str::<structs::AdditionalInfo>(s) {
+                info.get_host_name()
+            } else {
+                Default::default()
+            }
+        }
+    };
     {
         let mut extra_data = data.lock().await;
         let r = sqlx::query(r#"SELECT "id" FROM "clients" WHERE "uuid" = ?"#)
@@ -118,8 +126,18 @@ async fn route_post(
         };
         match payload.get_action().as_str() {
             "register" => {
-                extra_data.tx.send(Command::new(format!("{} (<code>{}</code>) comes online", id, payload.get_uuid()))).await.ok();
-            },
+                extra_data
+                    .bot_tx
+                    .send(Command::new(format!(
+                        "<b>{}</b> ({}:<code>{}</code>) comes online",
+                        id,
+                        hostname,
+                        payload.get_uuid()
+                    )))
+                    .await
+                    .ok();
+                extra_data.watchdog_tx.send(Command::IntegerData(id)).await.ok();
+            }
             "heartbeat" => {
                 // Update last seen
                 sqlx::query(r#"UPDATE "clients" SET "lastseen" = ? WHERE "id" = ? "#)
@@ -133,37 +151,95 @@ async fn route_post(
                     sqlx::query(
                         r#"INSERT INTO "raw_data" ("from", "data", "timestamp") VALUES (?, ?, ?)"#,
                     )
-                        .bind(id)
-                        .bind(payload.get_body().clone().unwrap())
-                        .bind(get_current_timestamp() as u32)
-                        .execute(&mut extra_data.conn)
-                        .await
-                        .unwrap();
+                    .bind(id)
+                    .bind(payload.get_body().clone().unwrap())
+                    .bind(get_current_timestamp() as u32)
+                    .execute(&mut extra_data.conn)
+                    .await
+                    .unwrap();
                 }
             }
-            _ => {
-                return Err(actix_web::error::ErrorBadRequest("Method not allowed"))
-            }
-
+            _ => return Err(actix_web::error::ErrorBadRequest("Method not allowed")),
         }
     }
     Ok(HttpResponse::Ok().json(Response::new_ok()))
 }
 
-async fn check_client_drops(mut rx: mpsc::Receiver<DeviceCommand>, conn: SqliteConnection) -> anyhow::Result<()> {
-    use DeviceCommand::*;
+async fn client_watchdog(
+    mut rx: mpsc::Receiver<Command>,
+    extra_data: Arc<Mutex<ExtraData>>,
+) -> anyhow::Result<()> {
+    use Command::*;
+    let mut conn = {
+        let mut extra = extra_data.lock().await;
+        let mut conn_ = SqliteConnection::connect("sqlite::memory:").await?;
+        sqlx::query(structs::CREATE_TABLES_WATCHDOG)
+            .execute(&mut conn_)
+            .await?;
+        let r: Vec<(i32,)> = sqlx::query_as(r#"SELECT "id" FROM "clients" WHERE "last_seen" > ?"#)
+            .bind((get_current_timestamp() - 300) as u32)
+            .fetch_all(&mut extra.conn)
+            .await?;
+        for item in r {
+            sqlx::query(r#"INSERT INTO "list" VALUES (?)"#)
+                .bind(item.0)
+                .execute(&mut conn_)
+                .await?;
+        }
+        conn_
+    };
+    debug!("Starting watchdog");
     loop {
-        if let Ok(cmd) = tokio::time::timeout(Duration::from_secs(1), rx.recv()).await {
-            if let Some(cmd) = cmd {
-                match cmd {
-                    Data(s) => {
-
+        if let Ok(Some(cmd)) = tokio::time::timeout(Duration::from_secs(1), rx.recv()).await {
+            match cmd {
+                IntegerData(id) => {
+                    let items = sqlx::query(r#"SELECT * FROM "list" WHERE "id" = ?"#)
+                        .bind(id)
+                        .fetch_all(&mut conn)
+                        .await?;
+                    if items.is_empty() {
+                        sqlx::query(r#"INSERT INTO "list" VALUES (?)"#)
+                            .bind(id)
+                            .execute(&mut conn)
+                            .await?;
                     }
-                    Terminate => break
+
                 }
+                Terminate => break,
+                _ => {},
             }
         }
+        let current_time = get_current_timestamp() as u32;
+        let mut offline_clients: Vec<(i32, String)> = Default::default();
+        {
+            let mut extras = extra_data.lock().await;
+            while let Some(Ok(row)) = sqlx::query(r#"SELECT * FROM "list""#)
+                .fetch(&mut conn)
+                .next()
+                .await {
+                let id: i32 = row.get(0);
+                let row = sqlx::query_as::<_, structs::ClientRow>(r#"SELECT * FROM "clients" WHERE "id" = ?"#)
+                    .bind(id)
+                    .fetch_one(&mut extras.conn)
+                    .await?;
+                if current_time - row.get_last_seen() > 300 {
+                    offline_clients.push((row.get_id(), row.get_uuid().clone()));
+                }
+            }
+            if !offline_clients.is_empty() {
+                let uuids: Vec<String> = offline_clients.clone().into_iter().map(|x| format!("<code>{}</code>", x.1)).collect();
+                extras.bot_tx.send(Command::StringData(format!("Clients offline:\n{}", uuids.join("\n")))).await?;
+            }
+        }
+        for client in &offline_clients {
+            sqlx::query(r#"DELETE FROM "list" WHERE "id" = ?"#)
+                .bind(client.0)
+                .execute(&mut conn)
+                .await?;
+        }
+
     }
+    debug!("Exit watchdog");
     Ok(())
 }
 
@@ -193,29 +269,18 @@ async fn async_main() -> anyhow::Result<()> {
 
     let authorization_guard = crate::configparser::AuthorizationGuard::from(&config);
     let bind_addr = config.get_bind_params();
-    let guard_task = tokio::spawn(check_client_drops(watchdog_rx, {
-        let mut conn_ = SqliteConnection::connect("sqlite::memory:").await?;
-        sqlx::query(structs::CREATE_TABLES_WATCHDOG)
-            .execute(&mut conn_)
-            .await?;
-        let r: Vec<(i32, )> = sqlx::query_as(r#"SELECT "id" FROM "clients" WHERE "last_seen" < ?"#)
-            .bind((get_current_timestamp() - 300) as u32)
-            .fetch_all(&mut conn)
-            .await?;
-        for item in r {
-            sqlx::query(r#"INSERT INTO "list" VALUES (?)"#)
-                .bind(item.0)
-                .execute(&mut conn_)
-                .await?;
-        }
-        let rv: anyhow::Result<SqliteConnection> = Ok(conn_);
-        rv
-    }?));
 
     let extra_data = Arc::new(Mutex::new(ExtraData {
         conn,
-        tx: bot_tx.clone(),
+        bot_tx: bot_tx.clone(),
+        watchdog_tx: watchdog_tx.clone(),
     }));
+    let guard_task = tokio::spawn(client_watchdog(watchdog_rx, extra_data.clone()));
+    let msg_sender = tokio::spawn(process_send_message(
+        bot.clone(),
+        config.get_owner(),
+        bot_rx,
+    ));
 
     info!("Bind address: {}", &bind_addr);
 
@@ -234,12 +299,11 @@ async fn async_main() -> anyhow::Result<()> {
         .run(),
     );
 
-    let msg_sender = tokio::spawn(process_send_message(bot.clone(), config.get_owner(), bot_rx));
     server.await??;
     bot_tx.send(Command::Terminate).await?;
-    watchdog_tx.send(DeviceCommand::Terminate).await?;
-    msg_sender.await??;
+    watchdog_tx.send(Command::Terminate).await?;
     guard_task.await??;
+    msg_sender.await??;
 
     Ok(())
 }

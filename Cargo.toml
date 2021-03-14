@@ -20,3 +20,4 @@ actix-web = { git = "https://github.com/actix/actix-web.git" }
 actix-rt = { git = "https://github.com/actix/actix-net" }
 actix = { git = "https://github.com/actix/actix" }
 tokio-compat-02 = "0.2"
+tokio-stream = "0.1.4"

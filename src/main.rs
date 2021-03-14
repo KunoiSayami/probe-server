@@ -26,13 +26,13 @@ use crate::structs::Response;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use log::{debug, info};
 use sqlx::{Connection, Row, SqliteConnection};
-use std::future::Future;
 use std::sync::Arc;
-use teloxide::requests::{Request, ResponseResult};
+use teloxide::requests::Request;
 use teloxide::Bot;
 use tokio::sync::{mpsc, Mutex};
 use tokio_compat_02::FutureExt as _;
 use teloxide::types::ParseMode;
+use std::time::Duration;
 
 fn get_current_timestamp() -> u128 {
     let start = std::time::SystemTime::now();
@@ -49,6 +49,12 @@ struct ExtraData {
 
 #[derive(Debug)]
 enum Command {
+    Data(String),
+    Terminate,
+}
+
+#[derive(Debug)]
+enum DeviceCommand {
     Data(String),
     Terminate,
 }
@@ -144,6 +150,23 @@ async fn route_post(
     Ok(HttpResponse::Ok().json(Response::new_ok()))
 }
 
+async fn check_client_drops(mut rx: mpsc::Receiver<DeviceCommand>, conn: SqliteConnection) -> anyhow::Result<()> {
+    use DeviceCommand::*;
+    loop {
+        if let Ok(cmd) = tokio::time::timeout(Duration::from_secs(1), rx.recv()).await {
+            if let Some(cmd) = cmd {
+                match cmd {
+                    Data(s) => {
+
+                    }
+                    Terminate => break
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn async_main() -> anyhow::Result<()> {
     let mut conn = SqliteConnection::connect("sqlite::memory:").await?;
 
@@ -165,14 +188,34 @@ async fn async_main() -> anyhow::Result<()> {
         .parse_mode(ParseMode::HTML)
         .build();
 
-    let (tx, mut rx) = mpsc::channel(1024);
+    let (bot_tx, bot_rx) = mpsc::channel(1024);
+    let (watchdog_tx, watchdog_rx) = mpsc::channel(1024);
+
+    let authorization_guard = crate::configparser::AuthorizationGuard::from(&config);
+    let bind_addr = config.get_bind_params();
+    let guard_task = tokio::spawn(check_client_drops(watchdog_rx, {
+        let mut conn_ = SqliteConnection::connect("sqlite::memory:").await?;
+        sqlx::query(structs::CREATE_TABLES_WATCHDOG)
+            .execute(&mut conn_)
+            .await?;
+        let r: Vec<(i32, )> = sqlx::query_as(r#"SELECT "id" FROM "clients" WHERE "last_seen" < ?"#)
+            .bind((get_current_timestamp() - 300) as u32)
+            .fetch_all(&mut conn)
+            .await?;
+        for item in r {
+            sqlx::query(r#"INSERT INTO "list" VALUES (?)"#)
+                .bind(item.0)
+                .execute(&mut conn_)
+                .await?;
+        }
+        let rv: anyhow::Result<SqliteConnection> = Ok(conn_);
+        rv
+    }?));
 
     let extra_data = Arc::new(Mutex::new(ExtraData {
         conn,
-        tx: tx.clone(),
+        tx: bot_tx.clone(),
     }));
-    let authorization_guard = crate::configparser::AuthorizationGuard::from(&config);
-    let bind_addr = config.get_bind_params();
 
     info!("Bind address: {}", &bind_addr);
 
@@ -191,10 +234,12 @@ async fn async_main() -> anyhow::Result<()> {
         .run(),
     );
 
-    let msg_sender = tokio::spawn(process_send_message(bot.clone(), config.get_owner(), rx));
+    let msg_sender = tokio::spawn(process_send_message(bot.clone(), config.get_owner(), bot_rx));
     server.await??;
-    tx.send(Command::Terminate).await?;
+    bot_tx.send(Command::Terminate).await?;
+    watchdog_tx.send(DeviceCommand::Terminate).await?;
     msg_sender.await??;
+    guard_task.await??;
 
     Ok(())
 }

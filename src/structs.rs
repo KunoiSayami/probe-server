@@ -34,6 +34,11 @@ CREATE TABLE "raw_data" (
 );
 "#;
 
+pub const CREATE_TABLES_WATCHDOG: &str = r#"CREATE TABLE "list" (
+    "id"    INTEGER NOT NULL UNIQUE,
+)
+"#;
+
 #[derive(Deserialize, Serialize)]
 pub struct Response {
     status: i64,
@@ -78,4 +83,11 @@ impl Request {
     pub fn get_body(&self) -> &Option<String> {
         &self.body
     }
+}
+
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct AdditionalInfo {
+    hostname: Option<String>,
+    boot_time: Option<String>,
 }

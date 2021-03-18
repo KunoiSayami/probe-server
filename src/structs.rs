@@ -87,20 +87,17 @@ impl Request {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct AdditionalInfo {
-    hostname: Option<String>,
-    boot_time: Option<u64>,
+    hostname: String,
+    boot_time: i64,
 }
 
 impl AdditionalInfo {
-    pub fn get_host_name(&self) -> String {
-        match &self.hostname {
-            Some(s) => s.clone(),
-            None => Default::default(),
-        }
+    pub fn get_host_name(&self) -> &String {
+        &self.hostname
     }
 
-    pub fn get_boot_time(&self) -> &Option<u64> {
-        &self.boot_time
+    pub fn get_boot_time(&self) -> i64 {
+        self.boot_time
     }
 }
 

@@ -28,12 +28,11 @@ use log::{debug, info};
 use sqlx::{Connection, Row, SqliteConnection};
 use std::sync::Arc;
 use std::time::Duration;
-use teloxide::requests::Request;
 use teloxide::types::ParseMode;
 use teloxide::Bot;
 use tokio::sync::{mpsc, Mutex};
-use tokio_compat_02::FutureExt as _;
-use tokio_stream::StreamExt;
+use tokio_stream::StreamExt as _;
+use teloxide::requests::{Requester, Request, RequesterExt};
 
 fn get_current_timestamp() -> u64 {
     let start = std::time::SystemTime::now();
@@ -66,19 +65,20 @@ impl Command {
 }
 
 async fn process_send_message(
-    bot: Bot,
+    bot: teloxide::adaptors::DefaultParseMode<Bot>,
     owner: i64,
     mut rx: mpsc::Receiver<Command>,
 ) -> anyhow::Result<()> {
     while let Some(cmd) = rx.recv().await {
         match cmd {
             Command::StringData(text) => {
-                bot.send_message(owner, text).send().compat().await?;
+                bot.send_message(owner, text).send().await?;
             }
             Command::Terminate => break,
             _ => {},
         }
     }
+    debug!("Send message daemon exiting...");
     Ok(())
 }
 
@@ -91,7 +91,7 @@ async fn route_post(
         None => Default::default(),
         Some(s) => {
             if let Ok(info) = serde_json::from_str::<structs::AdditionalInfo>(s) {
-                info.get_host_name()
+                info.get_host_name().clone()
             } else {
                 Default::default()
             }
@@ -217,9 +217,8 @@ async fn client_watchdog(
                 .fetch(&mut conn)
                 .next()
                 .await {
-                let id: i32 = row.get(0);
                 let row = sqlx::query_as::<_, structs::ClientRow>(r#"SELECT * FROM "clients" WHERE "id" = ?"#)
-                    .bind(id)
+                    .bind(row.get::<i32, usize>(0))
                     .fetch_one(&mut extras.conn)
                     .await?;
                 if current_time - row.get_last_seen() > 300 {
@@ -239,7 +238,7 @@ async fn client_watchdog(
         }
 
     }
-    debug!("Exit watchdog");
+    debug!("Client watchdog exiting...");
     Ok(())
 }
 
@@ -259,10 +258,11 @@ async fn async_main() -> anyhow::Result<()> {
 
     let config = Config::new("data/config.toml")?;
 
-    let bot = Bot::builder()
-        .token(config.get_bot_token())
-        .parse_mode(ParseMode::HTML)
-        .build();
+    let bot = Bot::new(config.get_bot_token());
+    let bot = match config.get_api_server() {
+        Some(api) => bot.set_api_url(api.parse()?),
+        None => bot,
+    };
 
     let (bot_tx, bot_rx) = mpsc::channel(1024);
     let (watchdog_tx, watchdog_rx) = mpsc::channel(1024);
@@ -277,7 +277,7 @@ async fn async_main() -> anyhow::Result<()> {
     }));
     let guard_task = tokio::spawn(client_watchdog(watchdog_rx, extra_data.clone()));
     let msg_sender = tokio::spawn(process_send_message(
-        bot.clone(),
+        bot.clone().parse_mode(ParseMode::Html),
         config.get_owner(),
         bot_rx,
     ));

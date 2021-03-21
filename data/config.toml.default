@@ -2,6 +2,7 @@
 bind = ""
 port = 26985
 token = ""
+database = ""
 
 [telegram]
 bot_token = ""

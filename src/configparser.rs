@@ -17,6 +17,7 @@
  ** You should have received a copy of the GNU Affero General Public License
  ** along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+#![allow(dead_code)]
 use actix_web::dev::RequestHead;
 use actix_web::guard::Guard;
 use anyhow::Result;
@@ -34,6 +35,7 @@ pub struct Server {
     bind: String,
     port: u16,
     token: String,
+    database: String,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -67,6 +69,9 @@ impl Config {
         self.telegram.owner
     }
 
+    pub fn get_database_location(&self) -> &String {
+        &self.server.database
+    }
     /*pub fn token_equal(&self, token: &str) -> bool {
         token.eq(&self.server.token)
     }*/

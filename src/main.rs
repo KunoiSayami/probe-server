@@ -28,11 +28,11 @@ use log::{debug, info};
 use sqlx::{Connection, Row, SqliteConnection};
 use std::sync::Arc;
 use std::time::Duration;
+use teloxide::requests::{Request, Requester, RequesterExt};
 use teloxide::types::ParseMode;
 use teloxide::Bot;
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::StreamExt as _;
-use teloxide::requests::{Requester, Request, RequesterExt};
 
 fn get_current_timestamp() -> u64 {
     let start = std::time::SystemTime::now();
@@ -75,7 +75,7 @@ async fn process_send_message(
                 bot.send_message(owner, text).send().await?;
             }
             Command::Terminate => break,
-            _ => {},
+            _ => {}
         }
     }
     debug!("Send message daemon exiting...");
@@ -122,7 +122,9 @@ async fn route_post(
                 .unwrap();
             r.0
         } else {
-            return Err(actix_web::error::ErrorBadRequest("Not registered client"));
+            return Err(actix_web::error::ErrorBadRequest(Response::from(
+                structs::ErrorCodes::NotRegister,
+            )));
         };
         match payload.get_action().as_str() {
             "register" => {
@@ -136,7 +138,11 @@ async fn route_post(
                     )))
                     .await
                     .ok();
-                extra_data.watchdog_tx.send(Command::IntegerData(id)).await.ok();
+                extra_data
+                    .watchdog_tx
+                    .send(Command::IntegerData(id))
+                    .await
+                    .ok();
             }
             "heartbeat" => {
                 // Update last seen
@@ -203,10 +209,9 @@ async fn client_watchdog(
                             .execute(&mut conn)
                             .await?;
                     }
-
                 }
                 Terminate => break,
-                _ => {},
+                _ => {}
             }
         }
         let current_time = get_current_timestamp() as u32;
@@ -216,18 +221,31 @@ async fn client_watchdog(
             while let Some(Ok(row)) = sqlx::query(r#"SELECT * FROM "list""#)
                 .fetch(&mut conn)
                 .next()
-                .await {
-                let row = sqlx::query_as::<_, structs::ClientRow>(r#"SELECT * FROM "clients" WHERE "id" = ?"#)
-                    .bind(row.get::<i32, usize>(0))
-                    .fetch_one(&mut extras.conn)
-                    .await?;
+                .await
+            {
+                let row = sqlx::query_as::<_, structs::ClientRow>(
+                    r#"SELECT * FROM "clients" WHERE "id" = ?"#,
+                )
+                .bind(row.get::<i32, usize>(0))
+                .fetch_one(&mut extras.conn)
+                .await?;
                 if current_time - row.get_last_seen() > 300 {
                     offline_clients.push((row.get_id(), row.get_uuid().clone()));
                 }
             }
             if !offline_clients.is_empty() {
-                let uuids: Vec<String> = offline_clients.clone().into_iter().map(|x| format!("<code>{}</code>", x.1)).collect();
-                extras.bot_tx.send(Command::StringData(format!("Clients offline:\n{}", uuids.join("\n")))).await?;
+                let uuids: Vec<String> = offline_clients
+                    .clone()
+                    .into_iter()
+                    .map(|x| format!("<code>{}</code>", x.1))
+                    .collect();
+                extras
+                    .bot_tx
+                    .send(Command::StringData(format!(
+                        "Clients offline:\n{}",
+                        uuids.join("\n")
+                    )))
+                    .await?;
             }
         }
         for client in &offline_clients {
@@ -236,14 +254,20 @@ async fn client_watchdog(
                 .execute(&mut conn)
                 .await?;
         }
-
     }
     debug!("Client watchdog exiting...");
     Ok(())
 }
 
 async fn async_main() -> anyhow::Result<()> {
-    let mut conn = SqliteConnection::connect("sqlite::memory:").await?;
+    let config = Config::new("data/config.toml")?;
+
+    let file = std::path::Path::new(config.get_database_location());
+    if !file.exists() {
+        std::fs::File::create(file)?;
+    }
+
+    let mut conn = SqliteConnection::connect(config.get_database_location()).await?;
 
     let rows = sqlx::query(r#"SELECT name FROM sqlite_master WHERE type='table' AND name='?'"#)
         .bind("clients")
@@ -255,8 +279,6 @@ async fn async_main() -> anyhow::Result<()> {
             .execute(&mut conn)
             .await?;
     }
-
-    let config = Config::new("data/config.toml")?;
 
     let bot = Bot::new(config.get_bot_token());
     let bot = match config.get_api_server() {

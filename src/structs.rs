@@ -17,7 +17,9 @@
  ** You should have received a copy of the GNU Affero General Public License
  ** along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+#![allow(dead_code)]
 use serde_derive::{Deserialize, Serialize};
+use std::fmt::Formatter;
 
 pub const CREATE_TABLES: &str = r#"CREATE TABLE "clients" (
 	"id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -39,27 +41,28 @@ pub const CREATE_TABLES_WATCHDOG: &str = r#"CREATE TABLE "list" (
 );
 "#;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug, Default)]
 pub struct Response {
     status: i64,
+    #[deprecated(since = "0.2.2")]
     error_code: Option<i64>,
     message: Option<String>,
 }
 
 impl Response {
-    pub fn new(status: i64, error_code: Option<i64>, message: Option<String>) -> Response {
+    pub fn new(status: i64, message: Option<String>) -> Response {
         Response {
             status,
-            error_code,
             message,
+            ..Default::default()
         }
     }
 
     pub fn new_ok() -> Response {
         Response {
             status: 200,
-            error_code: None,
             message: None,
+            ..Default::default()
         }
     }
 }
@@ -124,5 +127,49 @@ impl ClientRow {
 
     pub fn get_last_seen(&self) -> u32 {
         self.last_seen
+    }
+}
+
+#[derive(Debug, Clone)]
+#[repr(i64)]
+pub enum ErrorCodes {
+    OK,
+    NotRegister,
+}
+
+impl std::fmt::Display for ErrorCodes {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                ErrorCodes::OK => "",
+                ErrorCodes::NotRegister => "Not registered client",
+            }
+        )
+    }
+}
+
+impl From<ErrorCodes> for Response {
+    fn from(err_codes: ErrorCodes) -> Self {
+        Self::from(&err_codes)
+    }
+}
+
+impl From<&ErrorCodes> for Response {
+    fn from(err_codes: &ErrorCodes) -> Self {
+        match err_codes {
+            ErrorCodes::OK => Self::new_ok(),
+            _ =>
+                Self::new(
+                    400,
+                    Option::from(err_codes.to_string()),
+                )
+        }
+    }
+}
+impl std::fmt::Display for Response {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", serde_json::to_string(self).unwrap())
     }
 }

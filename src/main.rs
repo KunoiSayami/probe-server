@@ -34,6 +34,8 @@ use teloxide::Bot;
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::StreamExt as _;
 
+const CLIENT_TIMEOUT: u32 = 120;
+
 fn get_current_timestamp() -> u64 {
     let start = std::time::SystemTime::now();
     let since_the_epoch = start
@@ -128,6 +130,12 @@ async fn route_post(
         };
         match payload.get_action().as_str() {
             "register" => {
+                sqlx::query(r#"UPDATE "clients" SET "last_seen" = ? WHERE "id" = ? "#)
+                    .bind(get_current_timestamp() as u32)
+                    .bind(id)
+                    .execute(&mut extra_data.conn)
+                    .await
+                    .unwrap();
                 extra_data
                     .bot_tx
                     .send(Command::new(format!(
@@ -146,7 +154,7 @@ async fn route_post(
             }
             "heartbeat" => {
                 // Update last seen
-                sqlx::query(r#"UPDATE "clients" SET "lastseen" = ? WHERE "id" = ? "#)
+                sqlx::query(r#"UPDATE "clients" SET "last_seen" = ? WHERE "id" = ? "#)
                     .bind(get_current_timestamp() as u32)
                     .bind(id)
                     .execute(&mut extra_data.conn)
@@ -228,7 +236,7 @@ async fn client_watchdog(
                 .bind(row.get::<i32, usize>(0))
                 .fetch_one(&mut extras.conn)
                 .await?;
-                if current_time - row.get_last_seen() > 300 {
+                if current_time - row.get_last_seen() > CLIENT_TIMEOUT {
                     offline_clients.push((row.get_id(), row.get_uuid().clone()));
                 }
             }
@@ -261,9 +269,11 @@ async fn client_watchdog(
 async fn async_main() -> anyhow::Result<()> {
     let config = Config::new("data/config.toml")?;
 
-    let file = std::path::Path::new(config.get_database_location());
-    if !file.exists() {
-        std::fs::File::create(file)?;
+    if ! config.get_database_location().eq("sqlite::memory:") {
+        let file = std::path::Path::new(config.get_database_location());
+        if !file.exists() {
+            std::fs::File::create(file)?;
+        }
     }
 
     let mut conn = SqliteConnection::connect(config.get_database_location()).await?;

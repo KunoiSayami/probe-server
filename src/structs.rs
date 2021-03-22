@@ -131,7 +131,6 @@ impl ClientRow {
 }
 
 #[derive(Debug, Clone)]
-#[repr(i64)]
 pub enum ErrorCodes {
     OK,
     NotRegister,

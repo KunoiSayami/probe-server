@@ -131,7 +131,7 @@ async fn route_post(
                 extra_data
                     .bot_tx
                     .send(Command::new(format!(
-                        "<b>{}</b> ({}:<code>{}</code>) comes online",
+                        "<b>{}</b> ({}: <code>{}</code>) comes online",
                         id,
                         hostname,
                         payload.get_uuid()
@@ -218,10 +218,9 @@ async fn client_watchdog(
         let mut offline_clients: Vec<(i32, String)> = Default::default();
         {
             let mut extras = extra_data.lock().await;
-            while let Some(Ok(row)) = sqlx::query(r#"SELECT * FROM "list""#)
-                .fetch(&mut conn)
-                .next()
-                .await
+            let mut q = sqlx::query(r#"SELECT * FROM "list""#)
+                .fetch(&mut conn);
+            while let Some(Ok(row)) = q.next().await
             {
                 let row = sqlx::query_as::<_, structs::ClientRow>(
                     r#"SELECT * FROM "clients" WHERE "id" = ?"#,
@@ -269,7 +268,7 @@ async fn async_main() -> anyhow::Result<()> {
 
     let mut conn = SqliteConnection::connect(config.get_database_location()).await?;
 
-    let rows = sqlx::query(r#"SELECT name FROM sqlite_master WHERE type='table' AND name='?'"#)
+    let rows = sqlx::query(r#"SELECT name FROM sqlite_master WHERE type='table' AND name=?"#)
         .bind("clients")
         .fetch_all(&mut conn)
         .await?;

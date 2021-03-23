@@ -26,6 +26,7 @@ use crate::structs::Response;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use log::{debug, info};
 use sqlx::{Connection, Row, SqliteConnection};
+use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 use teloxide::requests::{Request, Requester, RequesterExt};
@@ -33,7 +34,6 @@ use teloxide::types::ParseMode;
 use teloxide::Bot;
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::StreamExt as _;
-use std::ops::Deref;
 
 const CLIENT_TIMEOUT: u32 = 15 * 60;
 const CLIENT_TIMEOUT_U64: u64 = CLIENT_TIMEOUT as u64;
@@ -178,7 +178,7 @@ async fn route_post(
 async fn route_admin_query(
     _req: HttpRequest,
     payload: web::Json<structs::AdminRequest>,
-    _data: web::Data<Arc<Mutex<ExtraData>>>
+    _data: web::Data<Arc<Mutex<ExtraData>>>,
 ) -> actix_web::Result<HttpResponse> {
     debug!("{}", serde_json::to_string(payload.deref()).unwrap());
     Ok(HttpResponse::Ok().json(Response::new_ok()))
@@ -231,8 +231,7 @@ async fn client_watchdog(
         let mut offline_clients: Vec<(i32, String)> = Default::default();
         {
             let mut extras = extra_data.lock().await;
-            let mut q = sqlx::query(r#"SELECT * FROM "list""#)
-                .fetch(&mut conn);
+            let mut q = sqlx::query(r#"SELECT * FROM "list""#).fetch(&mut conn);
             while let Some(Ok(row)) = q.next().await {
                 let row = sqlx::query_as::<_, structs::ClientRow>(
                     r#"SELECT * FROM "clients" WHERE "id" = ?"#,
@@ -273,7 +272,7 @@ async fn client_watchdog(
 async fn async_main() -> anyhow::Result<()> {
     let config = Config::new("data/config.toml")?;
 
-    if ! config.get_database_location().eq("sqlite::memory:") {
+    if !config.get_database_location().eq("sqlite::memory:") {
         let file = std::path::Path::new(config.get_database_location());
         if !file.exists() {
             std::fs::File::create(file)?;
@@ -303,7 +302,8 @@ async fn async_main() -> anyhow::Result<()> {
     let (watchdog_tx, watchdog_rx) = mpsc::channel(1024);
 
     let authorization_guard = crate::configparser::AuthorizationGuard::from(&config);
-    let admin_authorization_guard = crate::configparser::AuthorizationGuard::from(config.get_admin_token());
+    let admin_authorization_guard =
+        crate::configparser::AuthorizationGuard::from(config.get_admin_token());
     let bind_addr = config.get_bind_params();
 
     let extra_data = Arc::new(Mutex::new(ExtraData {
@@ -328,18 +328,18 @@ async fn async_main() -> anyhow::Result<()> {
                         .guard(admin_authorization_guard.to_owned())
                         .data(extra_data.clone())
                         .service(web::resource("").route(web::post().to(route_admin_query)))
-                        .route("", web::to(|| HttpResponse::Forbidden()))
+                        .route("", web::to(|| HttpResponse::Forbidden())),
                 )
                 .service(
                     web::scope("/")
                         .guard(authorization_guard.to_owned())
                         .data(extra_data.clone())
-                        .route("", web::post().to(route_post))
+                        .route("", web::post().to(route_post)),
                 )
-                .service(
-                    web::scope("/")
-                        .route("", web::get().to(|| HttpResponse::Ok().json(Response::new_ok())))
-                )
+                .service(web::scope("/").route(
+                    "",
+                    web::get().to(|| HttpResponse::Ok().json(Response::new_ok())),
+                ))
                 .route("/", web::to(|| HttpResponse::Forbidden()))
         })
         .bind(&bind_addr)?

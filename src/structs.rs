@@ -91,7 +91,6 @@ impl Request {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct AdminRequest {
     action: String,
-
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -165,11 +164,7 @@ impl From<&ErrorCodes> for Response {
     fn from(err_codes: &ErrorCodes) -> Self {
         match err_codes {
             ErrorCodes::OK => Self::new_ok(),
-            _ =>
-                Self::new(
-                    400,
-                    Option::from(err_codes.to_string()),
-                )
+            _ => Self::new(400, Option::from(err_codes.to_string())),
         }
     }
 }

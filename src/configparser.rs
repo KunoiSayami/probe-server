@@ -36,7 +36,7 @@ pub struct Server {
     port: u16,
     token: String,
     database: String,
-    admin_token: Option<String>
+    admin_token: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -89,18 +89,17 @@ pub struct AuthorizationGuard {
 
 impl From<Option<String>> for AuthorizationGuard {
     fn from(s: Option<String>) -> Self {
-        Self::from(&
-            match s {
-                Some(s) => s,
-                None => "".to_string()
-            })
+        Self::from(&match s {
+            Some(s) => s,
+            None => "".to_string(),
+        })
     }
 }
 
 impl From<&String> for AuthorizationGuard {
     fn from(s: &String) -> Self {
         Self {
-           token: format!("Bearer {}", s).trim().to_string()
+            token: format!("Bearer {}", s).trim().to_string(),
         }
     }
 }

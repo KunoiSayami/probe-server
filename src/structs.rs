@@ -89,6 +89,12 @@ impl Request {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct AdminRequest {
+    action: String,
+
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct AdditionalInfo {
     hostname: String,
     boot_time: i64,
@@ -130,7 +136,7 @@ impl ClientRow {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum ErrorCodes {
     OK,
     NotRegister,

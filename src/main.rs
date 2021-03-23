@@ -23,7 +23,7 @@ mod structs;
 
 use crate::configparser::Config;
 use crate::structs::Response;
-use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use log::{debug, info};
 use sqlx::{Connection, Row, SqliteConnection};
 use std::sync::Arc;
@@ -33,8 +33,10 @@ use teloxide::types::ParseMode;
 use teloxide::Bot;
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::StreamExt as _;
+use std::ops::Deref;
 
-const CLIENT_TIMEOUT: u32 = 120;
+const CLIENT_TIMEOUT: u32 = 15 * 60;
+const CLIENT_TIMEOUT_U64: u64 = CLIENT_TIMEOUT as u64;
 
 fn get_current_timestamp() -> u64 {
     let start = std::time::SystemTime::now();
@@ -88,7 +90,7 @@ async fn route_post(
     _req: HttpRequest,
     payload: web::Json<structs::Request>,
     data: web::Data<Arc<Mutex<ExtraData>>>,
-) -> actix_web::Result<impl Responder> {
+) -> actix_web::Result<HttpResponse> {
     let hostname: String = match payload.get_body() {
         None => Default::default(),
         Some(s) => {
@@ -130,25 +132,14 @@ async fn route_post(
         };
         match payload.get_action().as_str() {
             "register" => {
-                sqlx::query(r#"UPDATE "clients" SET "last_seen" = ? WHERE "id" = ? "#)
-                    .bind(get_current_timestamp() as u32)
-                    .bind(id)
-                    .execute(&mut extra_data.conn)
-                    .await
-                    .unwrap();
                 extra_data
                     .bot_tx
                     .send(Command::new(format!(
                         "<b>{}</b> ({}: <code>{}</code>) comes online",
-                        id,
                         hostname,
+                        id,
                         payload.get_uuid()
                     )))
-                    .await
-                    .ok();
-                extra_data
-                    .watchdog_tx
-                    .send(Command::IntegerData(id))
                     .await
                     .ok();
             }
@@ -160,6 +151,11 @@ async fn route_post(
                     .execute(&mut extra_data.conn)
                     .await
                     .unwrap();
+                extra_data
+                    .watchdog_tx
+                    .send(Command::IntegerData(id))
+                    .await
+                    .ok();
 
                 if payload.get_body().is_some() {
                     sqlx::query(
@@ -179,6 +175,15 @@ async fn route_post(
     Ok(HttpResponse::Ok().json(Response::new_ok()))
 }
 
+async fn route_admin_query(
+    _req: HttpRequest,
+    payload: web::Json<structs::AdminRequest>,
+    _data: web::Data<Arc<Mutex<ExtraData>>>
+) -> actix_web::Result<HttpResponse> {
+    debug!("{}", serde_json::to_string(payload.deref()).unwrap());
+    Ok(HttpResponse::Ok().json(Response::new_ok()))
+}
+
 async fn client_watchdog(
     mut rx: mpsc::Receiver<Command>,
     extra_data: Arc<Mutex<ExtraData>>,
@@ -191,7 +196,7 @@ async fn client_watchdog(
             .execute(&mut conn_)
             .await?;
         let r: Vec<(i32,)> = sqlx::query_as(r#"SELECT "id" FROM "clients" WHERE "last_seen" > ?"#)
-            .bind((get_current_timestamp() - 300) as u32)
+            .bind((get_current_timestamp() - CLIENT_TIMEOUT_U64) as u32)
             .fetch_all(&mut extra.conn)
             .await?;
         for item in r {
@@ -228,8 +233,7 @@ async fn client_watchdog(
             let mut extras = extra_data.lock().await;
             let mut q = sqlx::query(r#"SELECT * FROM "list""#)
                 .fetch(&mut conn);
-            while let Some(Ok(row)) = q.next().await
-            {
+            while let Some(Ok(row)) = q.next().await {
                 let row = sqlx::query_as::<_, structs::ClientRow>(
                     r#"SELECT * FROM "clients" WHERE "id" = ?"#,
                 )
@@ -299,6 +303,7 @@ async fn async_main() -> anyhow::Result<()> {
     let (watchdog_tx, watchdog_rx) = mpsc::channel(1024);
 
     let authorization_guard = crate::configparser::AuthorizationGuard::from(&config);
+    let admin_authorization_guard = crate::configparser::AuthorizationGuard::from(config.get_admin_token());
     let bind_addr = config.get_bind_params();
 
     let extra_data = Arc::new(Mutex::new(ExtraData {
@@ -319,12 +324,23 @@ async fn async_main() -> anyhow::Result<()> {
         HttpServer::new(move || {
             App::new()
                 .service(
+                    web::scope("/admin")
+                        .guard(admin_authorization_guard.to_owned())
+                        .data(extra_data.clone())
+                        .service(web::resource("").route(web::post().to(route_admin_query)))
+                        .route("", web::to(|| HttpResponse::Forbidden()))
+                )
+                .service(
                     web::scope("/")
                         .guard(authorization_guard.to_owned())
-                        .route("", web::to(HttpResponse::Forbidden)),
+                        .data(extra_data.clone())
+                        .route("", web::post().to(route_post))
                 )
-                .data(extra_data.clone())
-                .route("/", web::post().to(route_post))
+                .service(
+                    web::scope("/")
+                        .route("", web::get().to(|| HttpResponse::Ok().json(Response::new_ok())))
+                )
+                .route("/", web::to(|| HttpResponse::Forbidden()))
         })
         .bind(&bind_addr)?
         .run(),
@@ -340,7 +356,9 @@ async fn async_main() -> anyhow::Result<()> {
 }
 
 fn main() -> anyhow::Result<()> {
-    env_logger::init();
+    env_logger::Builder::from_default_env()
+        .filter_module("sqlx::query", log::LevelFilter::Warn)
+        .init();
 
     let system = actix::System::new();
 

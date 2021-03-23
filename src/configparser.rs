@@ -36,6 +36,7 @@ pub struct Server {
     port: u16,
     token: String,
     database: String,
+    admin_token: Option<String>
 }
 
 #[derive(Deserialize, Serialize)]
@@ -75,6 +76,10 @@ impl Config {
     /*pub fn token_equal(&self, token: &str) -> bool {
         token.eq(&self.server.token)
     }*/
+
+    pub fn get_admin_token(&self) -> Option<String> {
+        self.server.admin_token.clone()
+    }
 }
 
 #[derive(Clone)]
@@ -82,19 +87,35 @@ pub struct AuthorizationGuard {
     token: String,
 }
 
+impl From<Option<String>> for AuthorizationGuard {
+    fn from(s: Option<String>) -> Self {
+        Self::from(&
+            match s {
+                Some(s) => s,
+                None => "".to_string()
+            })
+    }
+}
+
+impl From<&String> for AuthorizationGuard {
+    fn from(s: &String) -> Self {
+        Self {
+           token: format!("Bearer {}", s).trim().to_string()
+        }
+    }
+}
+
 impl From<&Config> for AuthorizationGuard {
     fn from(cfg: &Config) -> Self {
-        AuthorizationGuard {
-            token: format!("Bearer {}", &cfg.server.token).trim().to_string(),
-        }
+        Self::from(&cfg.server.token)
     }
 }
 
 impl Guard for AuthorizationGuard {
     fn check(&self, request: &RequestHead) -> bool {
         if let Some(val) = request.headers.get("authorization") {
-            return val != &self.token;
+            return !self.token.is_empty() && val == &self.token;
         }
-        true
+        false
     }
 }

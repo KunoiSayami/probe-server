@@ -93,7 +93,7 @@ pub struct AdminRequest {
     action: String,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct AdditionalInfo {
     hostname: String,
     boot_time: i64,

@@ -22,7 +22,7 @@ mod configparser;
 mod structs;
 
 use crate::configparser::Config;
-use crate::structs::Response;
+use crate::structs::{Response, AdditionalInfo};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use log::{debug, info};
 use sqlx::{Connection, Row, SqliteConnection};
@@ -91,11 +91,11 @@ async fn route_post(
     payload: web::Json<structs::Request>,
     data: web::Data<Arc<Mutex<ExtraData>>>,
 ) -> actix_web::Result<HttpResponse> {
-    let hostname: String = match payload.get_body() {
+    let additional_info: AdditionalInfo = match payload.get_body() {
         None => Default::default(),
         Some(s) => {
             if let Ok(info) = serde_json::from_str::<structs::AdditionalInfo>(s) {
-                info.get_host_name().clone()
+                info
             } else {
                 Default::default()
             }
@@ -103,28 +103,28 @@ async fn route_post(
     };
     {
         let mut extra_data = data.lock().await;
-        let r = sqlx::query(r#"SELECT "id" FROM "clients" WHERE "uuid" = ?"#)
+        let r = sqlx::query(r#"SELECT "id", "boot_time" FROM "clients" WHERE "uuid" = ?"#)
             .bind(payload.get_uuid())
             .fetch_one(&mut extra_data.conn)
             .await;
-        let id = if r.is_ok() {
-            r.unwrap().get(0)
+        let (id, boot_time) = if let Ok(row) =  r {
+            (row.get(0), row.get(1))
         } else if payload.get_action().eq("register") {
             sqlx::query(
                 r#"INSERT INTO "clients" ("uuid", "boot_time", "last_seen") VALUES (?, ?, ?)"#,
             )
             .bind(payload.get_uuid())
-            .bind(0u32)
+            .bind(additional_info.get_boot_time())
             .bind(get_current_timestamp() as u32)
             .execute(&mut extra_data.conn)
             .await
             .unwrap();
-            let r: (i32,) = sqlx::query_as(r#"SELECT "id" FROM "clients" WHERE "uuid" = ?"#)
+            let r: (i32, i64) = sqlx::query_as(r#"SELECT "id", "boot_time" FROM "clients" WHERE "uuid" = ?"#)
                 .bind(payload.get_uuid())
                 .fetch_one(&mut extra_data.conn)
                 .await
                 .unwrap();
-            r.0
+            r
         } else {
             return Err(actix_web::error::ErrorBadRequest(Response::from(
                 structs::ErrorCodes::NotRegister,
@@ -132,18 +132,22 @@ async fn route_post(
         };
         match payload.get_action().as_str() {
             "register" => {
-                extra_data
-                    .bot_tx
-                    .send(Command::new(format!(
-                        "<b>{}</b> ({}: <code>{}</code>) comes online",
-                        hostname,
-                        id,
-                        payload.get_uuid()
-                    )))
-                    .await
-                    .ok();
+                if boot_time != additional_info.get_boot_time() {
+                    extra_data
+                        .bot_tx
+                        .send(Command::new(format!(
+                            "<b>{}</b> ({}: <code>{}</code>) comes online",
+                            additional_info.get_host_name(),
+                            id,
+                            payload.get_uuid()
+                        )))
+                        .await
+                        .ok();
+                }
+                info!("Got register command from {}({})", additional_info.get_host_name(), payload.get_uuid());
             }
             "heartbeat" => {
+                debug!("Got heartbeat command from {}({})", id, payload.get_uuid());
                 // Update last seen
                 sqlx::query(r#"UPDATE "clients" SET "last_seen" = ? WHERE "id" = ? "#)
                     .bind(get_current_timestamp() as u32)
@@ -323,6 +327,7 @@ async fn async_main() -> anyhow::Result<()> {
     let server = tokio::spawn(
         HttpServer::new(move || {
             App::new()
+                .wrap(actix_web::middleware::Logger::default())
                 .service(
                     web::scope("/admin")
                         .guard(admin_authorization_guard.to_owned())

@@ -1337,7 +1337,7 @@ checksum = "ac74c624d6b2d21f425f752262f42188365d7b8ff1aff74c82e45136510a4857"
 
 [[package]]
 name = "probe-server"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "actix",
  "actix-rt 2.1.0 (git+https://github.com/actix/actix-net)",
@@ -1939,9 +1939,9 @@ dependencies = [
 
 [[package]]
 name = "teloxide-macros"
-version = "0.3.2"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13d8854ad575520d8b37f4a7fdfcd381f48849557f0907b1a7d8163dbd8e952f"
+checksum = "44db3d9259fa57c56ab627277e42dc8f0b2c274fa86a502d18ef804ccf0d51f4"
 dependencies = [
  "proc-macro2",
  "quote",

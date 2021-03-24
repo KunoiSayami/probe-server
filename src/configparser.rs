@@ -18,15 +18,13 @@
  ** along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 #![allow(dead_code)]
-use actix_web::dev::RequestHead;
-use actix_web::guard::Guard;
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 use std::path::Path;
 
 #[derive(Deserialize, Serialize)]
 pub struct Config {
-    server: Server,
+    pub(crate) server: Server,
     telegram: Telegram,
 }
 
@@ -34,7 +32,7 @@ pub struct Config {
 pub struct Server {
     bind: String,
     port: u16,
-    token: String,
+    pub(crate) token: String,
     database: String,
     admin_token: Option<String>,
 }
@@ -80,46 +78,4 @@ impl Config {
     pub fn get_admin_token(&self) -> Option<String> {
         self.server.admin_token.clone()
     }
-}
-
-#[derive(Clone)]
-pub struct AuthorizationGuard {
-    token: String,
-}
-
-impl From<Option<String>> for AuthorizationGuard {
-    fn from(s: Option<String>) -> Self {
-        Self::from(&match s {
-            Some(s) => s,
-            None => "".to_string(),
-        })
-    }
-}
-
-impl From<&String> for AuthorizationGuard {
-    fn from(s: &String) -> Self {
-        Self {
-            token: format!("Bearer {}", s).trim().to_string(),
-        }
-    }
-}
-
-impl From<&Config> for AuthorizationGuard {
-    fn from(cfg: &Config) -> Self {
-        Self::from(&cfg.server.token)
-    }
-}
-
-impl Guard for AuthorizationGuard {
-    fn check(&self, request: &RequestHead) -> bool {
-        if let Some(val) = request.headers.get("authorization") {
-            return !self.token.is_empty() && val == &self.token;
-        }
-        false
-    }
-}
-
-#[derive(Deserialize, Serialize, Debug, Default, Clone)]
-struct AdminResult<T> {
-    result: Vec<T>
 }

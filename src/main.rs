@@ -103,7 +103,7 @@ async fn route_post(
             }
         }
     };
-    if payload.get_version().lt(MINIMUM_CLIENT_VERSION) {
+    if payload.get_version().lt(&MINIMUM_CLIENT_VERSION.to_string()) {
         return Err(actix_web::error::ErrorBadRequest(Response::from(structs::ErrorCodes::ClientVersionMismatch)))
     }
     {
@@ -137,7 +137,15 @@ async fn route_post(
         };
         match payload.get_action().as_str() {
             "register" => {
+                info!("Got register command from {}({})", additional_info.get_host_name(), payload.get_uuid());
                 if boot_time != additional_info.get_boot_time() {
+                    sqlx::query(r#"UPDATE "clients" SET "boot_time" = ?, "last_seen" = ? WHERE "id" = ?"#)
+                        .bind(additional_info.get_boot_time())
+                        .bind(get_current_timestamp() as i64)
+                        .bind(id)
+                        .execute(&mut extra_data.conn)
+                        .await
+                        .unwrap();
                     extra_data
                         .bot_tx
                         .send(Command::new(format!(
@@ -149,7 +157,6 @@ async fn route_post(
                         .await
                         .ok();
                 }
-                info!("Got register command from {}({})", additional_info.get_host_name(), payload.get_uuid());
             }
             "heartbeat" => {
                 debug!("Got heartbeat command from {}({})", id, payload.get_uuid());
@@ -369,6 +376,7 @@ fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_default_env()
         .filter_module("sqlx::query", log::LevelFilter::Warn)
         .init();
+    info!("Server version: {}", SERVER_VERSION);
 
     let system = actix::System::new();
 

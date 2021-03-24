@@ -18,8 +18,11 @@
  ** along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 #![allow(dead_code)]
+use actix_web::dev::RequestHead;
+use actix_web::guard::Guard;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Formatter;
+use crate::configparser::Config;
 
 pub const CREATE_TABLES: &str = r#"CREATE TABLE "clients" (
 	"id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -44,8 +47,6 @@ pub const CREATE_TABLES_WATCHDOG: &str = r#"CREATE TABLE "list" (
 #[derive(Deserialize, Serialize, Debug, Default)]
 pub struct Response {
     status: i64,
-    #[deprecated(since = "0.2.2")]
-    error_code: Option<i64>,
     message: Option<String>,
 }
 
@@ -53,16 +54,14 @@ impl Response {
     pub fn new(status: i64, message: Option<String>) -> Response {
         Response {
             status,
-            message,
-            ..Default::default()
+            message
         }
     }
 
     pub fn new_ok() -> Response {
         Response {
             status: 200,
-            message: None,
-            ..Default::default()
+            message: None
         }
     }
 }
@@ -114,7 +113,7 @@ impl AdditionalInfo {
     }
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(sqlx::FromRow, Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct ClientRow {
     id: i32,
     uuid: String,
@@ -179,4 +178,47 @@ impl std::fmt::Display for Response {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", serde_json::to_string(self).unwrap())
     }
+}
+
+
+#[derive(Clone)]
+pub struct AuthorizationGuard {
+    token: String,
+}
+
+impl From<Option<String>> for AuthorizationGuard {
+    fn from(s: Option<String>) -> Self {
+        Self::from(&match s {
+            Some(s) => s,
+            None => "".to_string(),
+        })
+    }
+}
+
+impl From<&String> for AuthorizationGuard {
+    fn from(s: &String) -> Self {
+        Self {
+            token: format!("Bearer {}", s).trim().to_string(),
+        }
+    }
+}
+
+impl From<&Config> for AuthorizationGuard {
+    fn from(cfg: &Config) -> Self {
+        Self::from(&cfg.server.token)
+    }
+}
+
+impl Guard for AuthorizationGuard {
+    fn check(&self, request: &RequestHead) -> bool {
+        if let Some(val) = request.headers.get("authorization") {
+            return !self.token.is_empty() && val == &self.token;
+        }
+        false
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Default, Clone)]
+struct AdminResult<T> {
+    result: Vec<T>
 }

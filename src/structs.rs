@@ -69,6 +69,7 @@ impl Response {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Request {
+    version: String,
     action: String,
     uuid: String,
     body: Option<String>,
@@ -85,6 +86,10 @@ impl Request {
 
     pub fn get_body(&self) -> &Option<String> {
         &self.body
+    }
+
+    pub fn get_version(&self) -> &String {
+        &self.version
     }
 }
 
@@ -139,6 +144,7 @@ impl ClientRow {
 pub enum ErrorCodes {
     OK,
     NotRegister,
+    ClientVersionMismatch,
 }
 
 impl std::fmt::Display for ErrorCodes {
@@ -149,6 +155,7 @@ impl std::fmt::Display for ErrorCodes {
             match self {
                 ErrorCodes::OK => "",
                 ErrorCodes::NotRegister => "Not registered client",
+                ErrorCodes::ClientVersionMismatch => "Client version smaller than requested version",
             }
         )
     }

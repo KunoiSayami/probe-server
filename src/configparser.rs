@@ -118,3 +118,8 @@ impl Guard for AuthorizationGuard {
         false
     }
 }
+
+#[derive(Deserialize, Serialize, Debug, Default, Clone)]
+struct AdminResult<T> {
+    result: Vec<T>
+}

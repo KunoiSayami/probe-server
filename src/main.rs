@@ -37,6 +37,8 @@ use tokio_stream::StreamExt as _;
 
 const CLIENT_TIMEOUT: u32 = 15 * 60;
 const CLIENT_TIMEOUT_U64: u64 = CLIENT_TIMEOUT as u64;
+const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
+const MINIMUM_CLIENT_VERSION: &str = "1.1.0";
 
 fn get_current_timestamp() -> u64 {
     let start = std::time::SystemTime::now();
@@ -101,6 +103,9 @@ async fn route_post(
             }
         }
     };
+    if payload.get_version().lt(MINIMUM_CLIENT_VERSION) {
+        return Err(actix_web::error::ErrorBadRequest(Response::from(structs::ErrorCodes::ClientVersionMismatch)))
+    }
     {
         let mut extra_data = data.lock().await;
         let r = sqlx::query(r#"SELECT "id", "boot_time" FROM "clients" WHERE "uuid" = ?"#)

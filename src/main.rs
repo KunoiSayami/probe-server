@@ -406,6 +406,21 @@ async fn async_main() -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn distribution_server(server_address: &str) -> anyhow::Result<()> {
+    let config = configparser::Config::new(std::path::Path::new("data").join("config.toml"))?;
+    let client_config = toml::to_string(&configparser::client::Configure::from_cfg(&config, server_address))?;
+    let bind_params = config.get_bind_params();
+    HttpServer::new(move || {
+        let c = client_config.clone();
+        App::new()
+            .route("/", web::to(|| HttpResponse::Ok().body(c)))
+    })
+        .bind(option_env!("BIND_ADDR").unwrap_or_else(|| bind_params.as_str()))?
+        .run()
+        .await?;
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_default_env()
         .filter_module("sqlx::query", log::LevelFilter::Warn)

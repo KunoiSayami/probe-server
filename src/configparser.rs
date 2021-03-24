@@ -75,7 +75,50 @@ impl Config {
         token.eq(&self.server.token)
     }*/
 
+    pub fn get_auth_token(&self) -> &String {
+        &self.server.token
+    }
+
     pub fn get_admin_token(&self) -> Option<String> {
         self.server.admin_token.clone()
+    }
+}
+
+
+pub mod client {
+    use crate::configparser::Config;
+    use serde_derive::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize, Clone)]
+    pub struct Configure {
+        pub server: RemoteServer,
+        pub statistics: Statistics,
+    }
+
+    #[derive(Serialize, Deserialize, Clone)]
+    pub struct Statistics {
+        pub enabled: bool,
+    }
+
+    #[derive(Serialize, Deserialize, Clone)]
+    pub struct RemoteServer {
+        pub server_address: String,
+        pub token: String,
+        pub backup_servers: Option<Vec<String>>,
+        pub interval: Option<u32>,
+    }
+
+    impl Configure {
+        pub fn from_cfg(cfg: &Config, server_address: &str) -> Self {
+            Self {
+                server: RemoteServer {
+                    server_address: server_address.to_string(),
+                    token: cfg.get_auth_token().clone(),
+                    backup_servers: None,
+                    interval: None
+                },
+                statistics: Statistics { enabled: false }
+            }
+        }
     }
 }

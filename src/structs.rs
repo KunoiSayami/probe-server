@@ -113,7 +113,7 @@ impl AdditionalInfo {
     }
 }
 
-#[derive(sqlx::FromRow, Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(sqlx::FromRow, Serialize, Deserialize, Clone, Debug)]
 pub struct ClientRow {
     id: i32,
     uuid: String,

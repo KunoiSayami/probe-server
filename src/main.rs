@@ -108,6 +108,7 @@ async fn route_post(
     }
     {
         let mut extra_data = data.lock().await;
+        let mut new_machine = false;
         let r = sqlx::query(r#"SELECT "id", "boot_time" FROM "clients" WHERE "uuid" = ?"#)
             .bind(payload.get_uuid())
             .fetch_one(&mut extra_data.conn)
@@ -124,6 +125,7 @@ async fn route_post(
             .execute(&mut extra_data.conn)
             .await
             .unwrap();
+            new_machine = true;
             let r: (i32, i64) = sqlx::query_as(r#"SELECT "id", "boot_time" FROM "clients" WHERE "uuid" = ?"#)
                 .bind(payload.get_uuid())
                 .fetch_one(&mut extra_data.conn)
@@ -138,14 +140,16 @@ async fn route_post(
         match payload.get_action().as_str() {
             "register" => {
                 info!("Got register command from {}({})", additional_info.get_host_name(), payload.get_uuid());
-                if boot_time != additional_info.get_boot_time() {
-                    sqlx::query(r#"UPDATE "clients" SET "boot_time" = ?, "last_seen" = ? WHERE "id" = ?"#)
-                        .bind(additional_info.get_boot_time())
-                        .bind(get_current_timestamp() as i64)
-                        .bind(id)
-                        .execute(&mut extra_data.conn)
-                        .await
-                        .unwrap();
+                if boot_time != additional_info.get_boot_time() || new_machine {
+                    if ! new_machine {
+                        sqlx::query(r#"UPDATE "clients" SET "boot_time" = ?, "last_seen" = ? WHERE "id" = ?"#)
+                            .bind(additional_info.get_boot_time())
+                            .bind(get_current_timestamp() as i64)
+                            .bind(id)
+                            .execute(&mut extra_data.conn)
+                            .await
+                            .unwrap();
+                    }
                     extra_data
                         .bot_tx
                         .send(Command::new(format!(
@@ -317,9 +321,9 @@ async fn async_main() -> anyhow::Result<()> {
     let (bot_tx, bot_rx) = mpsc::channel(1024);
     let (watchdog_tx, watchdog_rx) = mpsc::channel(1024);
 
-    let authorization_guard = crate::configparser::AuthorizationGuard::from(&config);
+    let authorization_guard = crate::structs::AuthorizationGuard::from(&config);
     let admin_authorization_guard =
-        crate::configparser::AuthorizationGuard::from(config.get_admin_token());
+        crate::structs::AuthorizationGuard::from(config.get_admin_token());
     let bind_addr = config.get_bind_params();
 
     let extra_data = Arc::new(Mutex::new(ExtraData {
@@ -345,7 +349,7 @@ async fn async_main() -> anyhow::Result<()> {
                         .guard(admin_authorization_guard.to_owned())
                         .data(extra_data.clone())
                         .service(web::resource("").route(web::post().to(route_admin_query)))
-                        .route("", web::to(|| HttpResponse::Forbidden())),
+                        .route("", web::to(HttpResponse::Forbidden)),
                 )
                 .service(
                     web::scope("/")
@@ -357,7 +361,7 @@ async fn async_main() -> anyhow::Result<()> {
                     "",
                     web::get().to(|| HttpResponse::Ok().json(Response::new_ok())),
                 ))
-                .route("/", web::to(|| HttpResponse::Forbidden()))
+                .route("/", web::to(HttpResponse::Forbidden))
         })
         .bind(&bind_addr)?
         .run(),

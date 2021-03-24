@@ -18,11 +18,11 @@
  ** along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 #![allow(dead_code)]
+use crate::configparser::Config;
 use actix_web::dev::RequestHead;
 use actix_web::guard::Guard;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Formatter;
-use crate::configparser::Config;
 
 pub const CREATE_TABLES: &str = r#"CREATE TABLE "clients" (
 	"id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -52,16 +52,13 @@ pub struct Response {
 
 impl Response {
     pub fn new(status: i64, message: Option<String>) -> Response {
-        Response {
-            status,
-            message
-        }
+        Response { status, message }
     }
 
     pub fn new_ok() -> Response {
         Response {
             status: 200,
-            message: None
+            message: None,
         }
     }
 }
@@ -154,7 +151,8 @@ impl std::fmt::Display for ErrorCodes {
             match self {
                 ErrorCodes::OK => "",
                 ErrorCodes::NotRegister => "Not registered client",
-                ErrorCodes::ClientVersionMismatch => "Client version smaller than requested version",
+                ErrorCodes::ClientVersionMismatch =>
+                    "Client version smaller than requested version",
             }
         )
     }
@@ -179,7 +177,6 @@ impl std::fmt::Display for Response {
         write!(f, "{}", serde_json::to_string(self).unwrap())
     }
 }
-
 
 #[derive(Clone)]
 pub struct AuthorizationGuard {
@@ -220,5 +217,5 @@ impl Guard for AuthorizationGuard {
 
 #[derive(Deserialize, Serialize, Debug, Default, Clone)]
 struct AdminResult<T> {
-    result: Vec<T>
+    result: Vec<T>,
 }

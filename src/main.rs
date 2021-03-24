@@ -19,10 +19,11 @@
  */
 
 mod configparser;
+mod database;
 mod structs;
 
 use crate::configparser::Config;
-use crate::structs::{Response, AdditionalInfo};
+use crate::structs::{AdditionalInfo, Response};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use log::{debug, info};
 use sqlx::{Connection, Row, SqliteConnection};
@@ -103,8 +104,13 @@ async fn route_post(
             }
         }
     };
-    if payload.get_version().lt(&MINIMUM_CLIENT_VERSION.to_string()) {
-        return Err(actix_web::error::ErrorBadRequest(Response::from(structs::ErrorCodes::ClientVersionMismatch)))
+    if payload
+        .get_version()
+        .lt(&MINIMUM_CLIENT_VERSION.to_string())
+    {
+        return Err(actix_web::error::ErrorBadRequest(Response::from(
+            structs::ErrorCodes::ClientVersionMismatch,
+        )));
     }
     {
         let mut extra_data = data.lock().await;
@@ -113,7 +119,7 @@ async fn route_post(
             .bind(payload.get_uuid())
             .fetch_one(&mut extra_data.conn)
             .await;
-        let (id, boot_time) = if let Ok(row) =  r {
+        let (id, boot_time) = if let Ok(row) = r {
             (row.get(0), row.get(1))
         } else if payload.get_action().eq("register") {
             sqlx::query(
@@ -126,9 +132,16 @@ async fn route_post(
             .await
             .unwrap();
             new_machine = true;
-            let r: (i32, i64) = sqlx::query_as(r#"SELECT "id", "boot_time" FROM "clients" WHERE "uuid" = ?"#)
-                .bind(payload.get_uuid())
-                .fetch_one(&mut extra_data.conn)
+            let r: (i32, i64) =
+                sqlx::query_as(r#"SELECT "id", "boot_time" FROM "clients" WHERE "uuid" = ?"#)
+                    .bind(payload.get_uuid())
+                    .fetch_one(&mut extra_data.conn)
+                    .await
+                    .unwrap();
+            sqlx::query(r#"INSERT INTO "hostname" VALUES (?, ?)"#)
+                .bind(r.0)
+                .bind(additional_info.get_host_name())
+                .execute(&mut extra_data.conn)
                 .await
                 .unwrap();
             r
@@ -139,9 +152,13 @@ async fn route_post(
         };
         match payload.get_action().as_str() {
             "register" => {
-                info!("Got register command from {}({})", additional_info.get_host_name(), payload.get_uuid());
+                info!(
+                    "Got register command from {}({})",
+                    additional_info.get_host_name(),
+                    payload.get_uuid()
+                );
                 if boot_time != additional_info.get_boot_time() || new_machine {
-                    if ! new_machine {
+                    if !new_machine {
                         sqlx::query(r#"UPDATE "clients" SET "boot_time" = ?, "last_seen" = ? WHERE "id" = ?"#)
                             .bind(additional_info.get_boot_time())
                             .bind(get_current_timestamp() as i64)
@@ -241,6 +258,19 @@ async fn client_watchdog(
                             .bind(id)
                             .execute(&mut conn)
                             .await?;
+                        let extra_data = extra_data.clone();
+                        let mut ext = extra_data.lock().await;
+                        let r: (Option<String>,) =
+                            sqlx::query_as(r#"SELECT "name" FROM "hostname" WHERE "id" = ?"#)
+                                .fetch_one(&mut ext.conn)
+                                .await?;
+                        ext.bot_tx
+                            .send(Command::StringData(format!(
+                                "<b>{}</b> ({}) back online",
+                                r.0.unwrap_or_else(|| "(no hostname)".to_string()),
+                                id,
+                            )))
+                            .await?;
                     }
                 }
                 Terminate => break,
@@ -302,12 +332,12 @@ async fn async_main() -> anyhow::Result<()> {
     let mut conn = SqliteConnection::connect(config.get_database_location()).await?;
 
     let rows = sqlx::query(r#"SELECT name FROM sqlite_master WHERE type='table' AND name=?"#)
-        .bind("clients")
+        .bind("pbs_meta")
         .fetch_all(&mut conn)
         .await?;
 
     if rows.is_empty() {
-        sqlx::query(structs::CREATE_TABLES)
+        sqlx::query(database::v2::CREATE_TABLES)
             .execute(&mut conn)
             .await?;
     }

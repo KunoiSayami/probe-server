@@ -23,11 +23,10 @@ mod database;
 mod structs;
 
 use crate::configparser::Config;
-use crate::structs::{AdditionalInfo, Response};
+use crate::structs::{AdditionalInfo, Response, AdminResult};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use log::{debug, info};
 use sqlx::{Connection, Row, SqliteConnection};
-use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 use teloxide::requests::{Request, Requester, RequesterExt};
@@ -215,10 +214,24 @@ async fn route_post(
 async fn route_admin_query(
     _req: HttpRequest,
     payload: web::Json<structs::AdminRequest>,
-    _data: web::Data<Arc<Mutex<ExtraData>>>,
+    data: web::Data<Arc<Mutex<ExtraData>>>,
 ) -> actix_web::Result<HttpResponse> {
-    debug!("{}", serde_json::to_string(payload.deref()).unwrap());
-    Ok(HttpResponse::Ok().json(Response::new_ok()))
+    let mut ext = data.lock().await;
+    match payload.get_action().as_str() {
+        "query" => {
+            let r: Vec<structs::ClientRow> = sqlx::query_as(r#"SELECT * FROM "clients" WHERE "last_seen" > ?"#)
+                .bind((get_current_timestamp() - CLIENT_TIMEOUT_U64) as i64)
+                .fetch_all(&mut ext.conn)
+                .await
+                .unwrap();
+            let mut output= AdminResult {result: Vec::new()};
+            for row in r {
+                output.result.push(row)
+            }
+            Ok(HttpResponse::Ok().json(output))
+        }
+        _ => Err(actix_web::error::ErrorBadRequest(Response::from(structs::ErrorCodes::UnsupportedMethod)))
+    }
 }
 
 async fn client_watchdog(

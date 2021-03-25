@@ -94,6 +94,12 @@ pub struct AdminRequest {
     action: String,
 }
 
+impl AdminRequest {
+    pub fn get_action(&self) -> &String {
+        &self.action
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct AdditionalInfo {
     hostname: String,
@@ -141,6 +147,7 @@ pub enum ErrorCodes {
     OK,
     NotRegister,
     ClientVersionMismatch,
+    UnsupportedMethod,
 }
 
 impl std::fmt::Display for ErrorCodes {
@@ -153,6 +160,8 @@ impl std::fmt::Display for ErrorCodes {
                 ErrorCodes::NotRegister => "Not registered client",
                 ErrorCodes::ClientVersionMismatch =>
                     "Client version smaller than requested version",
+                ErrorCodes::UnsupportedMethod =>
+                    "Request method not supported",
             }
         )
     }
@@ -216,6 +225,6 @@ impl Guard for AuthorizationGuard {
 }
 
 #[derive(Deserialize, Serialize, Debug, Default, Clone)]
-struct AdminResult<T> {
-    result: Vec<T>,
+pub struct AdminResult<T> {
+    pub result: Vec<T>,
 }

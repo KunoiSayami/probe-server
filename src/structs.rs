@@ -47,6 +47,7 @@ pub const CREATE_TABLES_WATCHDOG: &str = r#"CREATE TABLE "list" (
 #[derive(Deserialize, Serialize, Debug, Default)]
 pub struct Response {
     status: i64,
+    #[deprecated(since = "0.9.0")]
     error_code: i64,
     message: Option<String>,
 }
@@ -55,8 +56,8 @@ impl Response {
     pub fn new(status: i64, message: Option<String>) -> Response {
         Response {
             status,
-            error_code: 0,
             message,
+            ..Default::default()
         }
     }
 
@@ -138,15 +139,15 @@ pub enum ErrorCodes {
 impl From<&ErrorCodes> for i64 {
     fn from(e: &ErrorCodes) -> Self {
         match e {
-            ErrorCodes::OK => 0,
-            ErrorCodes::NotRegister => 1,
-            ErrorCodes::ClientVersionMismatch => 2,
-            ErrorCodes::UnsupportedMethod => 3,
-            ErrorCodes::Reversed1 => 4,
-            ErrorCodes::Reversed2 => 5,
-            ErrorCodes::Reversed3 => 6,
-            ErrorCodes::Reversed4 => 7,
-            ErrorCodes::Reversed5 => 8,
+            ErrorCodes::OK => 200,
+            ErrorCodes::NotRegister => 4031,
+            ErrorCodes::ClientVersionMismatch => 4000,
+            ErrorCodes::UnsupportedMethod => 4001,
+            ErrorCodes::Reversed1 => 4002,
+            ErrorCodes::Reversed2 => 4003,
+            ErrorCodes::Reversed3 => 4004,
+            ErrorCodes::Reversed4 => 4005,
+            ErrorCodes::Reversed5 => 4006,
         }
     }
 }
@@ -180,7 +181,8 @@ impl From<&ErrorCodes> for Response {
     fn from(err_codes: &ErrorCodes) -> Self {
         match err_codes {
             ErrorCodes::OK => Self::new_ok(),
-            _ => Self::new(400, Option::from(err_codes.to_string())),
+            _ => Self::new(i64::from(err_codes),
+                           Option::from(err_codes.to_string())),
         }
     }
 }

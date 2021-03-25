@@ -1,6 +1,6 @@
 [package]
 name = "probe-server"
-version = "0.6.0"
+version = "0.6.1"
 authors = ["KunoiSayami <46131041+KunoiSayami@users.noreply.github.com>"]
 edition = "2018"
 
@@ -20,3 +20,4 @@ actix-web = { git = "https://github.com/actix/actix-web.git" }
 actix-rt = { git = "https://github.com/actix/actix-net" }
 actix = { git = "https://github.com/actix/actix" }
 tokio-stream = "0.1.4"
+clap = "2"

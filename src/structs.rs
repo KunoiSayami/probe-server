@@ -47,18 +47,20 @@ pub const CREATE_TABLES_WATCHDOG: &str = r#"CREATE TABLE "list" (
 #[derive(Deserialize, Serialize, Debug, Default)]
 pub struct Response {
     status: i64,
+    error_code: i64,
     message: Option<String>,
 }
 
 impl Response {
     pub fn new(status: i64, message: Option<String>) -> Response {
-        Response { status, message }
+        Response { status, error_code: 0, message }
     }
 
     pub fn new_ok() -> Response {
         Response {
             status: 200,
             message: None,
+            ..Default::default()
         }
     }
 }
@@ -148,6 +150,27 @@ pub enum ErrorCodes {
     NotRegister,
     ClientVersionMismatch,
     UnsupportedMethod,
+    Reversed1,
+    Reversed2,
+    Reversed3,
+    Reversed4,
+    Reversed5,
+}
+
+impl From<&ErrorCodes> for i64 {
+    fn from(e: &ErrorCodes) -> Self {
+        match e {
+            ErrorCodes::OK => 0,
+            ErrorCodes::NotRegister => 1,
+            ErrorCodes::ClientVersionMismatch => 2,
+            ErrorCodes::UnsupportedMethod => 3,
+            ErrorCodes::Reversed1 => 4,
+            ErrorCodes::Reversed2 => 5,
+            ErrorCodes::Reversed3 => 6,
+            ErrorCodes::Reversed4 => 7,
+            ErrorCodes::Reversed5 => 8,
+        }
+    }
 }
 
 impl std::fmt::Display for ErrorCodes {
@@ -162,6 +185,7 @@ impl std::fmt::Display for ErrorCodes {
                     "Client version smaller than requested version",
                 ErrorCodes::UnsupportedMethod =>
                     "Request method not supported",
+                _ => {unreachable!()}
             }
         )
     }

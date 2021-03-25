@@ -51,4 +51,34 @@ pub mod v2 {
 
     pub const VERSION: &str = "2";
 }
-pub use v2::VERSION;
+
+#[allow(dead_code)]
+pub mod v3 {
+    pub const CREATE_TABLES: &str = r#"
+    CREATE TABLE "clients" (
+        "id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        "uuid"	TEXT NOT NULL UNIQUE,
+        "boot_time"	INTEGER NOT NULL,
+        "last_seen"	INTEGER NOT NULL,
+        "hostname"  TEXT,
+    );
+
+    CREATE TABLE "raw_data" (
+        "id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        "from"	INTEGER NOT NULL,
+        "data"	TEXT NOT NULL,
+        "timestamp"	INTEGER NOT NULL
+    );
+
+    CREATE TABLE "pbs_meta" (
+        "key"	TEXT NOT NULL,
+        "value"	TEXT NOT NULL,
+        PRIMARY KEY("key")
+    );
+
+    INSERT INTO "pbs_meta" VALUES ('version', '3');
+    "#;
+
+    pub const VERSION: &str = "3";
+}
+pub use v3::VERSION;

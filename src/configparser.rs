@@ -84,7 +84,6 @@ impl Config {
     }
 }
 
-
 pub mod client {
     use crate::configparser::Config;
     use serde_derive::{Deserialize, Serialize};
@@ -115,9 +114,9 @@ pub mod client {
                     server_address: server_address.to_string(),
                     token: cfg.get_auth_token().clone(),
                     backup_servers: None,
-                    interval: None
+                    interval: None,
                 },
-                statistics: Statistics { enabled: false }
+                statistics: Statistics { enabled: false },
             }
         }
     }

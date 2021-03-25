@@ -53,7 +53,11 @@ pub struct Response {
 
 impl Response {
     pub fn new(status: i64, message: Option<String>) -> Response {
-        Response { status, error_code: 0, message }
+        Response {
+            status,
+            error_code: 0,
+            message,
+        }
     }
 
     pub fn new_ok() -> Response {
@@ -183,9 +187,10 @@ impl std::fmt::Display for ErrorCodes {
                 ErrorCodes::NotRegister => "Not registered client",
                 ErrorCodes::ClientVersionMismatch =>
                     "Client version smaller than requested version",
-                ErrorCodes::UnsupportedMethod =>
-                    "Request method not supported",
-                _ => {unreachable!()}
+                ErrorCodes::UnsupportedMethod => "Request method not supported",
+                _ => {
+                    unreachable!()
+                }
             }
         )
     }

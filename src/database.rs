@@ -82,3 +82,4 @@ pub mod v3 {
     pub const VERSION: &str = "3";
 }
 pub use v3::VERSION;
+pub use v3 as current;

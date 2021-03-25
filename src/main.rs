@@ -23,7 +23,7 @@ mod database;
 mod structs;
 
 use crate::configparser::Config;
-use crate::structs::{AdditionalInfo, Response, AdminResult};
+use crate::structs::{AdditionalInfo, AdminResult, Response};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use log::{debug, info};
 use sqlx::{Connection, Row, SqliteConnection};
@@ -122,11 +122,18 @@ async fn route_post(
             (row.get(0), row.get(1))
         } else if payload.get_action().eq("register") {
             sqlx::query(
-                r#"INSERT INTO "clients" ("uuid", "boot_time", "last_seen") VALUES (?, ?, ?)"#,
+                r#"INSERT INTO "clients" ("uuid", "boot_time", "last_seen", "hostname") VALUES (?, ?, ?, ?)"#,
             )
             .bind(payload.get_uuid())
             .bind(additional_info.get_boot_time())
             .bind(get_current_timestamp() as u32)
+            .bind({
+                let s: Option<String> =
+                    if additional_info.get_host_name().is_empty()
+                    {None} else
+                    {Some(additional_info.get_host_name().clone())};
+                s
+            })
             .execute(&mut extra_data.conn)
             .await
             .unwrap();
@@ -137,12 +144,6 @@ async fn route_post(
                     .fetch_one(&mut extra_data.conn)
                     .await
                     .unwrap();
-            sqlx::query(r#"INSERT INTO "hostname" VALUES (?, ?)"#)
-                .bind(r.0)
-                .bind(additional_info.get_host_name())
-                .execute(&mut extra_data.conn)
-                .await
-                .unwrap();
             r
         } else {
             return Err(actix_web::error::ErrorBadRequest(Response::from(
@@ -219,18 +220,21 @@ async fn route_admin_query(
     let mut ext = data.lock().await;
     match payload.get_action().as_str() {
         "query" => {
-            let r: Vec<structs::ClientRow> = sqlx::query_as(r#"SELECT * FROM "clients" WHERE "last_seen" > ?"#)
-                .bind((get_current_timestamp() - CLIENT_TIMEOUT_U64) as i64)
-                .fetch_all(&mut ext.conn)
-                .await
-                .unwrap();
-            let mut output= AdminResult {result: Vec::new()};
+            let r: Vec<structs::ClientRow> =
+                sqlx::query_as(r#"SELECT * FROM "clients" WHERE "last_seen" > ?"#)
+                    .bind((get_current_timestamp() - CLIENT_TIMEOUT_U64) as i64)
+                    .fetch_all(&mut ext.conn)
+                    .await
+                    .unwrap();
+            let mut output = AdminResult { result: Vec::new() };
             for row in r {
                 output.result.push(row)
             }
             Ok(HttpResponse::Ok().json(output))
         }
-        _ => Err(actix_web::error::ErrorBadRequest(Response::from(structs::ErrorCodes::UnsupportedMethod)))
+        _ => Err(actix_web::error::ErrorBadRequest(Response::from(
+            structs::ErrorCodes::UnsupportedMethod,
+        ))),
     }
 }
 
@@ -274,7 +278,7 @@ async fn client_watchdog(
                         let extra_data = extra_data.clone();
                         let mut ext = extra_data.lock().await;
                         let r: (Option<String>,) =
-                            sqlx::query_as(r#"SELECT "name" FROM "hostname" WHERE "id" = ?"#)
+                            sqlx::query_as(r#"SELECT "hostname" FROM "clients" WHERE "id" = ?"#)
                                 .fetch_one(&mut ext.conn)
                                 .await?;
                         ext.bot_tx
@@ -350,7 +354,7 @@ async fn async_main() -> anyhow::Result<()> {
         .await?;
 
     if rows.is_empty() {
-        sqlx::query(database::v2::CREATE_TABLES)
+        sqlx::query(database::current::CREATE_TABLES)
             .execute(&mut conn)
             .await?;
     }
@@ -425,16 +429,19 @@ async fn distribution_configure(data: web::Data<String>) -> actix_web::Result<Ht
 
 async fn distribution_server(server_address: &str) -> anyhow::Result<()> {
     let config = configparser::Config::new(std::path::Path::new("data").join("config.toml"))?;
-    let client_config = toml::to_string(&configparser::client::Configure::from_cfg(&config, server_address))?;
+    let client_config = toml::to_string(&configparser::client::Configure::from_cfg(
+        &config,
+        server_address,
+    ))?;
     let bind_params = config.get_bind_params();
     HttpServer::new(move || {
         App::new()
             .app_data(client_config.clone())
             .route("/", web::to(distribution_configure))
     })
-        .bind(option_env!("BIND_ADDR").unwrap_or_else(|| bind_params.as_str()))?
-        .run()
-        .await?;
+    .bind(option_env!("BIND_ADDR").unwrap_or_else(|| bind_params.as_str()))?
+    .run()
+    .await?;
     Ok(())
 }
 
@@ -442,7 +449,6 @@ fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_default_env()
         .filter_module("sqlx::query", log::LevelFilter::Warn)
         .init();
-
 
     let args = clap::App::new("probe-server")
         .version(SERVER_VERSION)

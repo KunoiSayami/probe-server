@@ -80,6 +80,41 @@ pub mod v3 {
     "#;
 
     pub const VERSION: &str = "3";
+
 }
 pub use v3::VERSION;
 pub use v3 as current;
+
+use serde_derive::{Deserialize, Serialize};
+
+#[derive(sqlx::FromRow, Serialize, Deserialize, Clone, Debug)]
+pub struct ClientRow {
+    id: i32,
+    uuid: String,
+    boot_time: u32,
+    last_seen: u32,
+    hostname: Option<String>
+}
+
+#[allow(dead_code)]
+impl ClientRow {
+    pub fn get_id(&self) -> i32 {
+        self.id
+    }
+
+    pub fn get_uuid(&self) -> &String {
+        &self.uuid
+    }
+
+    pub fn get_boot_time(&self) -> u32 {
+        self.boot_time
+    }
+
+    pub fn get_last_seen(&self) -> u32 {
+        self.last_seen
+    }
+
+    pub fn get_hostname(&self) -> &Option<String> {
+        &self.hostname
+    }
+}

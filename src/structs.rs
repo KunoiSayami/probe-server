@@ -122,32 +122,6 @@ impl AdditionalInfo {
     }
 }
 
-#[derive(sqlx::FromRow, Serialize, Deserialize, Clone, Debug)]
-pub struct ClientRow {
-    id: i32,
-    uuid: String,
-    boot_time: u32,
-    last_seen: u32,
-}
-
-impl ClientRow {
-    pub fn get_id(&self) -> i32 {
-        self.id
-    }
-
-    pub fn get_uuid(&self) -> &String {
-        &self.uuid
-    }
-
-    pub fn get_boot_time(&self) -> u32 {
-        self.boot_time
-    }
-
-    pub fn get_last_seen(&self) -> u32 {
-        self.last_seen
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum ErrorCodes {
     OK,

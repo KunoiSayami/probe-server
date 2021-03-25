@@ -35,10 +35,10 @@ use teloxide::Bot;
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::StreamExt as _;
 
-const CLIENT_TIMEOUT: u32 = 15 * 60;
+const CLIENT_TIMEOUT: u32 = 25 * 60;
 const CLIENT_TIMEOUT_U64: u64 = CLIENT_TIMEOUT as u64;
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
-const MINIMUM_CLIENT_VERSION: &str = "1.1.0";
+const MINIMUM_CLIENT_VERSION: &str = "1.4.0";
 
 fn get_current_timestamp() -> u64 {
     let start = std::time::SystemTime::now();
@@ -130,8 +130,8 @@ async fn route_post(
             .bind({
                 let s: Option<String> =
                     if additional_info.get_host_name().is_empty()
-                    {None} else
-                    {Some(additional_info.get_host_name().clone())};
+                    {None}
+                    else {Some(additional_info.get_host_name().clone())};
                 s
             })
             .execute(&mut extra_data.conn)
@@ -220,7 +220,7 @@ async fn route_admin_query(
     let mut ext = data.lock().await;
     match payload.get_action().as_str() {
         "query" => {
-            let r: Vec<structs::ClientRow> =
+            let r: Vec<database::ClientRow> =
                 sqlx::query_as(r#"SELECT * FROM "clients" WHERE "last_seen" > ?"#)
                     .bind((get_current_timestamp() - CLIENT_TIMEOUT_U64) as i64)
                     .fetch_all(&mut ext.conn)
@@ -300,7 +300,7 @@ async fn client_watchdog(
             let mut extras = extra_data.lock().await;
             let mut q = sqlx::query(r#"SELECT * FROM "list""#).fetch(&mut conn);
             while let Some(Ok(row)) = q.next().await {
-                let row = sqlx::query_as::<_, structs::ClientRow>(
+                let row = sqlx::query_as::<_, database::ClientRow>(
                     r#"SELECT * FROM "clients" WHERE "id" = ?"#,
                 )
                 .bind(row.get::<i32, usize>(0))

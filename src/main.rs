@@ -267,11 +267,13 @@ async fn client_watchdog(
                         .bind(id)
                         .fetch_all(&mut conn)
                         .await?;
-                    if items.is_empty() {
-                        sqlx::query(r#"INSERT INTO "list" VALUES (?)"#)
-                            .bind(id)
-                            .execute(&mut conn)
-                            .await?;
+                    if items.is_empty() || from_register {
+                        if items.is_empty() {
+                            sqlx::query(r#"INSERT INTO "list" VALUES (?)"#)
+                                .bind(id)
+                                .execute(&mut conn)
+                                .await?;
+                        }
                         let extra_data = extra_data.clone();
                         let mut ext = extra_data.lock().await;
                         let r: (String, Option<String>,) =

@@ -59,16 +59,16 @@ struct ExtraData {
 #[derive(Debug)]
 enum Command {
     StringData(String),
-    MachineID(i32),
+    MachineID((i32, bool)),
     Terminate,
 }
 
-impl Command {
+/*impl Command {
     fn new<T: Into<String>>(s: T) -> Command
     {
         Command::StringData(s.into())
     }
-}
+}*/
 
 async fn process_send_message(
     bot: teloxide::adaptors::DefaultParseMode<Bot>,
@@ -170,15 +170,10 @@ async fn route_post(
                             .unwrap();
                     }
                     extra_data
-                        .bot_tx
-                        .send(Command::new(format!(
-                            "<b>{}</b> ({}: <code>{}</code>) comes online with register command",
-                            additional_info.get_host_name(),
-                            id,
-                            payload.get_uuid()
-                        )))
+                        .watchdog_tx
+                        .send(Command::MachineID((id, true)))
                         .await
-                        .ok();
+                        .unwrap();
                 }
             }
             "heartbeat" => {
@@ -192,9 +187,9 @@ async fn route_post(
                     .unwrap();
                 extra_data
                     .watchdog_tx
-                    .send(Command::MachineID(id))
+                    .send(Command::MachineID((id, false)))
                     .await
-                    .ok();
+                    .unwrap();
 
                 if payload.get_body().is_some() {
                     sqlx::query(
@@ -267,7 +262,7 @@ async fn client_watchdog(
     loop {
         if let Ok(Some(cmd)) = tokio::time::timeout(Duration::from_secs(DEFAULT_COMMAND_CHANNEL_TIMEOUT), rx.recv()).await {
             match cmd {
-                MachineID(id) => {
+                MachineID((id, from_register)) => {
                     let items = sqlx::query(r#"SELECT * FROM "list" WHERE "id" = ?"#)
                         .bind(id)
                         .fetch_all(&mut conn)
@@ -286,10 +281,13 @@ async fn client_watchdog(
                                 .await?;
                         ext.bot_tx
                             .send(Command::StringData(format!(
-                                "<b>{}</b> ({}: <code>{}</code>) back online",
+                                "<b>{}</b> ({}: <code>{}</code>) {}",
                                 r.1.unwrap_or_else(|| DEFAULT_HOSTNAME.to_string()),
                                 id,
-                                r.0
+                                r.0,
+                                if from_register {"comes online with register command"} else {
+                                    "back online"
+                                }
                             )))
                             .await?;
                     }

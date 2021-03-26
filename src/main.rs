@@ -25,7 +25,7 @@ mod structs;
 use crate::configparser::Config;
 use crate::structs::{AdditionalInfo, AdminResult, Response};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
-use log::{debug, info};
+use log::{debug, error, info};
 use sqlx::{Connection, Row, SqliteConnection};
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,8 +37,10 @@ use tokio_stream::StreamExt as _;
 
 const CLIENT_TIMEOUT: u32 = 25 * 60;
 const CLIENT_TIMEOUT_U64: u64 = CLIENT_TIMEOUT as u64;
-const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
-const MINIMUM_CLIENT_VERSION: &str = "1.4.0";
+const DEFAULT_COMMAND_CHANNEL_TIMEOUT: u64 = 10;
+use structs::SERVER_VERSION;
+const MINIMUM_CLIENT_VERSION: &str = "1.6.1";
+const DEFAULT_HOSTNAME: &str = "(no hostname)";
 
 fn get_current_timestamp() -> u64 {
     let start = std::time::SystemTime::now();
@@ -57,14 +59,12 @@ struct ExtraData {
 #[derive(Debug)]
 enum Command {
     StringData(String),
-    IntegerData(i32),
+    MachineID(i32),
     Terminate,
 }
 
 impl Command {
-    fn new<T>(s: T) -> Command
-    where
-        T: Into<String>,
+    fn new<T: Into<String>>(s: T) -> Command
     {
         Command::StringData(s.into())
     }
@@ -78,7 +78,9 @@ async fn process_send_message(
     while let Some(cmd) = rx.recv().await {
         match cmd {
             Command::StringData(text) => {
-                bot.send_message(owner, text).send().await?;
+                if let Err(e) = bot.send_message(owner, text).send().await {
+                    error!("Got error in send message {:?}", e);
+                }
             }
             Command::Terminate => break,
             _ => {}
@@ -170,7 +172,7 @@ async fn route_post(
                     extra_data
                         .bot_tx
                         .send(Command::new(format!(
-                            "<b>{}</b> ({}: <code>{}</code>) comes online",
+                            "<b>{}</b> ({}: <code>{}</code>) comes online with register command",
                             additional_info.get_host_name(),
                             id,
                             payload.get_uuid()
@@ -190,7 +192,7 @@ async fn route_post(
                     .unwrap();
                 extra_data
                     .watchdog_tx
-                    .send(Command::IntegerData(id))
+                    .send(Command::MachineID(id))
                     .await
                     .ok();
 
@@ -263,9 +265,9 @@ async fn client_watchdog(
     };
     debug!("Starting watchdog");
     loop {
-        if let Ok(Some(cmd)) = tokio::time::timeout(Duration::from_secs(1), rx.recv()).await {
+        if let Ok(Some(cmd)) = tokio::time::timeout(Duration::from_secs(DEFAULT_COMMAND_CHANNEL_TIMEOUT), rx.recv()).await {
             match cmd {
-                IntegerData(id) => {
+                MachineID(id) => {
                     let items = sqlx::query(r#"SELECT * FROM "list" WHERE "id" = ?"#)
                         .bind(id)
                         .fetch_all(&mut conn)
@@ -277,15 +279,17 @@ async fn client_watchdog(
                             .await?;
                         let extra_data = extra_data.clone();
                         let mut ext = extra_data.lock().await;
-                        let r: (Option<String>,) =
-                            sqlx::query_as(r#"SELECT "hostname" FROM "clients" WHERE "id" = ?"#)
+                        let r: (String, Option<String>,) =
+                            sqlx::query_as(r#"SELECT "uuid", "hostname" FROM "clients" WHERE "id" = ?"#)
+                                .bind(id)
                                 .fetch_one(&mut ext.conn)
                                 .await?;
                         ext.bot_tx
                             .send(Command::StringData(format!(
-                                "<b>{}</b> ({}) back online",
-                                r.0.unwrap_or_else(|| "(no hostname)".to_string()),
+                                "<b>{}</b> ({}: <code>{}</code>) back online",
+                                r.1.unwrap_or_else(|| DEFAULT_HOSTNAME.to_string()),
                                 id,
+                                r.0
                             )))
                             .await?;
                     }
@@ -295,7 +299,7 @@ async fn client_watchdog(
             }
         }
         let current_time = get_current_timestamp() as u32;
-        let mut offline_clients: Vec<(i32, String)> = Default::default();
+        let mut offline_clients: Vec<(i32, String, String)> = Default::default();
         {
             let mut extras = extra_data.lock().await;
             let mut q = sqlx::query(r#"SELECT * FROM "list""#).fetch(&mut conn);
@@ -307,14 +311,18 @@ async fn client_watchdog(
                 .fetch_one(&mut extras.conn)
                 .await?;
                 if current_time - row.get_last_seen() > CLIENT_TIMEOUT {
-                    offline_clients.push((row.get_id(), row.get_uuid().clone()));
+                    offline_clients.push((
+                        row.get_id(),
+                        row.get_uuid().clone(),
+                        row.get_hostname().clone().unwrap_or_else(|| DEFAULT_HOSTNAME.to_string())
+                    ));
                 }
             }
             if !offline_clients.is_empty() {
                 let uuids: Vec<String> = offline_clients
                     .clone()
                     .into_iter()
-                    .map(|x| format!("<code>{}</code>", x.1))
+                    .map(|x| format!("<b>{}</b>: <code>{}</code>", x.2, x.1))
                     .collect();
                 extras
                     .bot_tx
@@ -415,6 +423,18 @@ async fn async_main() -> anyhow::Result<()> {
     );
 
     server.await??;
+/*    if let Err(e) = bot_tx.send(Command::Terminate).await {
+        error!("Got error while send Terminate command to bot_tx {:?}", e);
+    }
+    if let Err(e) = watchdog_tx.send(Command::Terminate).await {
+        error!("Got error while send Terminate command to watchdog_tx {:?}", e);
+    }
+    if let Err(e) = guard_task.await? {
+        error!("Got error while waiting guard_task {:?}", e);
+    }
+    if let Err(e) = msg_sender.await? {
+        error!("Got error while waiting guard_task {:?}", e);
+    }*/
     bot_tx.send(Command::Terminate).await?;
     watchdog_tx.send(Command::Terminate).await?;
     guard_task.await??;

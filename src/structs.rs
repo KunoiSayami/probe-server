@@ -23,6 +23,7 @@ use actix_web::dev::RequestHead;
 use actix_web::guard::Guard;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Formatter;
+pub const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub const CREATE_TABLES: &str = r#"CREATE TABLE "clients" (
 	"id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -46,6 +47,7 @@ pub const CREATE_TABLES_WATCHDOG: &str = r#"CREATE TABLE "list" (
 
 #[derive(Deserialize, Serialize, Debug, Default)]
 pub struct Response {
+    version: String,
     status: i64,
     #[deprecated(since = "0.9.0")]
     error_code: i64,
@@ -55,6 +57,7 @@ pub struct Response {
 impl Response {
     pub fn new(status: i64, message: Option<String>) -> Response {
         Response {
+            version: SERVER_VERSION.to_string(),
             status,
             message,
             ..Default::default()
@@ -63,6 +66,7 @@ impl Response {
 
     pub fn new_ok() -> Response {
         Response {
+            version: SERVER_VERSION.to_string(),
             status: 200,
             message: None,
             ..Default::default()

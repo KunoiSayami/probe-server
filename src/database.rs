@@ -60,7 +60,7 @@ pub mod v3 {
         "uuid"	TEXT NOT NULL UNIQUE,
         "boot_time"	INTEGER NOT NULL,
         "last_seen"	INTEGER NOT NULL,
-        "hostname"  TEXT,
+        "hostname"  TEXT
     );
 
     CREATE TABLE "raw_data" (

@@ -1,13 +1,13 @@
 [package]
 name = "probe-server"
-version = "0.10.2"
+version = "0.11.0"
 authors = ["KunoiSayami <46131041+KunoiSayami@users.noreply.github.com>"]
 edition = "2018"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.5", features = [ "json", "sqlite", "runtime-actix-native-tls"] }
-anyhow = "1.0.38"
+anyhow = "1"
 serde_json = "1"
 toml = "0.5"
 log = { version = "0.4", features = ["max_level_trace", "release_max_level_debug"] }
@@ -19,5 +19,5 @@ teloxide-macros = "0.4"
 actix-web = { git = "https://github.com/actix/actix-web.git" }
 actix-rt = { git = "https://github.com/actix/actix-net" }
 actix = { git = "https://github.com/actix/actix" }
-tokio-stream = "0.1.4"
+tokio-stream = "0.1"
 clap = "2"

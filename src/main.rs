@@ -35,7 +35,7 @@ use teloxide::Bot;
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::StreamExt as _;
 
-const CLIENT_TIMEOUT: u32 = 25 * 60;
+const CLIENT_TIMEOUT: u32 = 7 * 60;
 const CLIENT_TIMEOUT_U64: u64 = CLIENT_TIMEOUT as u64;
 const DEFAULT_COMMAND_CHANNEL_TIMEOUT: u64 = 10;
 use structs::SERVER_VERSION;
@@ -131,9 +131,11 @@ async fn route_post(
             .bind(get_current_timestamp() as u32)
             .bind({
                 let s: Option<String> =
-                    if additional_info.get_host_name().is_empty()
-                    {None}
-                    else {Some(additional_info.get_host_name().clone())};
+                    if additional_info.get_host_name().is_empty() {
+                        None
+                    } else {
+                        Some(additional_info.get_host_name().clone())
+                    };
                 s
             })
             .execute(&mut extra_data.conn)
@@ -215,24 +217,42 @@ async fn route_admin_query(
     data: web::Data<Arc<Mutex<ExtraData>>>,
 ) -> actix_web::Result<HttpResponse> {
     let mut ext = data.lock().await;
-    match payload.get_action().as_str() {
-        "query" => {
+    let timeout_timestamp = (get_current_timestamp() - CLIENT_TIMEOUT_U64) as i64;
+    let resp = match payload.get_action().as_str() {
+        "query_online" => {
             let r: Vec<database::ClientRow> =
                 sqlx::query_as(r#"SELECT * FROM "clients" WHERE "last_seen" > ?"#)
-                    .bind((get_current_timestamp() - CLIENT_TIMEOUT_U64) as i64)
+                    .bind(timeout_timestamp)
                     .fetch_all(&mut ext.conn)
                     .await
                     .unwrap();
-            let mut output = AdminResult { result: Vec::new() };
+            let mut output = Vec::new();
             for row in r {
-                output.result.push(row)
+                output.push(row)
             }
-            Ok(HttpResponse::Ok().json(output))
+            AdminResult::new_ok(output)
         }
-        _ => Err(actix_web::error::ErrorBadRequest(Response::from(
+        "query_online_num" => {
+            let r: (i64,) = sqlx::query_as(r#"SELECT COUNT(*) FROM "clients" WHERE "last_seen" > ?"#)
+                .bind(timeout_timestamp)
+                .fetch_one(&mut ext.conn)
+                .await
+                .unwrap();
+           AdminResult::new_ok(r.0)
+        },
+        "query" => {
+            let r: Vec<database::ClientRow> =
+                sqlx::query_as(r#"SELECT * FROM "clients""#)
+                    .fetch_all(&mut ext.conn)
+                    .await
+                    .unwrap();
+            AdminResult::new_ok(r)
+        }
+        _ => return Err(actix_web::error::ErrorBadRequest(Response::from(
             structs::ErrorCodes::UnsupportedMethod,
         ))),
-    }
+    };
+    Ok(HttpResponse::Ok().json(resp.unwrap()))
 }
 
 async fn client_watchdog(

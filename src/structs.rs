@@ -234,6 +234,23 @@ impl Guard for AuthorizationGuard {
 }
 
 #[derive(Deserialize, Serialize, Debug, Default, Clone)]
-pub struct AdminResult<T> {
-    pub result: Vec<T>,
+pub struct AdminResult {
+    status: i64,
+    result: serde_json::Value,
+}
+
+impl AdminResult {
+    pub fn new<T>(status: i64, v: T) -> anyhow::Result<Self>
+        where
+            T: serde::Serialize
+    {
+        Ok(AdminResult {status, result: serde_json::to_value(v)?})
+    }
+
+    pub fn new_ok<T>(v: T) -> anyhow::Result<Self>
+        where
+            T: serde::Serialize
+    {
+        Self::new(200, v)
+    }
 }

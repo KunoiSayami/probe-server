@@ -71,10 +71,21 @@ enum Command {
 }*/
 
 async fn process_send_message(
-    bot: teloxide::adaptors::DefaultParseMode<Bot>,
+    bot_token: String,
+    api_server: Option<String>,
     owner: i64,
     mut rx: mpsc::Receiver<Command>,
 ) -> anyhow::Result<()> {
+    if bot_token.is_empty() {
+        info!("Token is empty, skipped all send message request.");
+        return Ok(())
+    }
+    let bot = Bot::new(bot_token);
+    let bot = match api_server {
+        Some(api) => bot.set_api_url(api.parse()?),
+        None => bot,
+    };
+    let bot = bot.parse_mode(ParseMode::Html);
     while let Some(cmd) = rx.recv().await {
         match cmd {
             Command::StringData(text) => {
@@ -387,11 +398,11 @@ async fn async_main() -> anyhow::Result<()> {
             .await?;
     }
 
-    let bot = Bot::new(config.get_bot_token());
+    /*let bot = Bot::new(config.get_bot_token());
     let bot = match config.get_api_server() {
         Some(api) => bot.set_api_url(api.parse()?),
         None => bot,
-    };
+    };*/
 
     let (bot_tx, bot_rx) = mpsc::channel(1024);
     let (watchdog_tx, watchdog_rx) = mpsc::channel(1024);
@@ -408,7 +419,8 @@ async fn async_main() -> anyhow::Result<()> {
     }));
     let guard_task = tokio::spawn(client_watchdog(watchdog_rx, extra_data.clone()));
     let msg_sender = tokio::spawn(process_send_message(
-        bot.clone().parse_mode(ParseMode::Html),
+        config.get_bot_token().clone(),
+        config.get_api_server().clone(),
         config.get_owner(),
         bot_rx,
     ));

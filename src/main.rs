@@ -78,6 +78,12 @@ async fn process_send_message(
 ) -> anyhow::Result<()> {
     if bot_token.is_empty() {
         info!("Token is empty, skipped all send message request.");
+        while let Some(cmd) = rx.recv().await {
+            match cmd {
+                Command::Terminate => break,
+                _ => {}
+            }
+        }
         return Ok(())
     }
     let bot = Bot::new(bot_token);
@@ -398,12 +404,6 @@ async fn async_main() -> anyhow::Result<()> {
             .await?;
     }
 
-    /*let bot = Bot::new(config.get_bot_token());
-    let bot = match config.get_api_server() {
-        Some(api) => bot.set_api_url(api.parse()?),
-        None => bot,
-    };*/
-
     let (bot_tx, bot_rx) = mpsc::channel(1024);
     let (watchdog_tx, watchdog_rx) = mpsc::channel(1024);
 
@@ -455,18 +455,6 @@ async fn async_main() -> anyhow::Result<()> {
     );
 
     server.await??;
-/*    if let Err(e) = bot_tx.send(Command::Terminate).await {
-        error!("Got error while send Terminate command to bot_tx {:?}", e);
-    }
-    if let Err(e) = watchdog_tx.send(Command::Terminate).await {
-        error!("Got error while send Terminate command to watchdog_tx {:?}", e);
-    }
-    if let Err(e) = guard_task.await? {
-        error!("Got error while waiting guard_task {:?}", e);
-    }
-    if let Err(e) = msg_sender.await? {
-        error!("Got error while waiting guard_task {:?}", e);
-    }*/
     bot_tx.send(Command::Terminate).await?;
     watchdog_tx.send(Command::Terminate).await?;
     guard_task.await??;

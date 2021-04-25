@@ -2,8 +2,8 @@ name: Build binary
 
 on:
   push:
-    tags-ignore:
-      - test*
+    tags:
+      - v**
   pull_request:
 
 jobs:

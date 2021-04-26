@@ -1,6 +1,6 @@
 [package]
 name = "probe-server"
-version = "0.11.2"
+version = "0.11.3"
 authors = ["KunoiSayami <46131041+KunoiSayami@users.noreply.github.com>"]
 edition = "2018"
 
@@ -21,3 +21,6 @@ actix-rt = { git = "https://github.com/actix/actix-net" }
 actix = { git = "https://github.com/actix/actix" }
 tokio-stream = "0.1"
 clap = "2"
+
+[target.aarch64-unknown-linux-musl.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }

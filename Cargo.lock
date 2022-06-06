@@ -112,7 +112,8 @@ dependencies = [
 [[package]]
 name = "actix-rt"
 version = "2.2.0"
-source = "git+https://github.com/actix/actix-net#ddce2d6d12bb98a0fbf585a242089fa416fb78b3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc7d7cd957c9ed92288a7c3c96af81fa5291f65247a76a34dac7b6af74e52ba0"
 dependencies = [
  "actix-macros",
  "futures-core",
@@ -122,8 +123,7 @@ dependencies = [
 [[package]]
 name = "actix-rt"
 version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc7d7cd957c9ed92288a7c3c96af81fa5291f65247a76a34dac7b6af74e52ba0"
+source = "git+https://github.com/actix/actix-net#ddce2d6d12bb98a0fbf585a242089fa416fb78b3"
 dependencies = [
  "actix-macros",
  "futures-core",
@@ -549,11 +549,10 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-utils"
-version = "0.8.3"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7e9d99fa91428effe99c5c6d4634cdeba32b8cf784fc428a2a687f61a952c49"
+checksum = "0bf124c720b7686e3c2663cf54062ab0f68a88af2fb6a030e87e30bf721fcb38"
 dependencies = [
- "autocfg",
  "cfg-if",
  "lazy_static",
 ]
